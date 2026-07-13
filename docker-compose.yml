@@ -1,0 +1,34 @@
+services:
+  postgres:
+    image: postgres:17
+    container_name: appointment-tool-postgres
+    environment:
+      POSTGRES_USER: appointment
+      POSTGRES_PASSWORD: appointment
+      POSTGRES_DB: appointment_tool
+    ports:
+      - "5433:5432"
+    volumes:
+      - appointment_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U appointment -d appointment_tool"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  appointment-tool:
+    build: .
+    container_name: appointment-tool
+    ports:
+      - "3080:3080"
+    environment:
+      DATABASE_URL: postgres://appointment:appointment@postgres:5432/appointment_tool
+      PORT: "3080"
+      AGENTBLIT_APP_URL: http://localhost:3000
+      PUBLIC_BASE_URL: http://localhost:3080
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  appointment_pg_data:

@@ -1,0 +1,96 @@
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { executeAppointmentTool } from "@/lib/appointment/exec-tools";
+import { requireAgentHeaders } from "@/lib/auth/http-connector-auth";
+
+const toolCallSchema = z.object({
+  id: z.string().min(1),
+  type: z.literal("function"),
+  function: z.object({
+    name: z.string().optional().default(""),
+    arguments: z.string().optional().default(""),
+  }),
+});
+
+const bodySchema = z.object({
+  tool_calls: z.array(toolCallSchema).min(1),
+});
+
+export async function POST(request: Request) {
+  let agentId: string;
+  let workspaceId: string;
+  try {
+    ({ agentId, workspaceId } = requireAgentHeaders(request));
+  } catch (error) {
+    return NextResponse.json(
+      {
+        error:
+          error instanceof Error ? error.message : "Missing agent headers",
+      },
+      { status: 401 },
+    );
+  }
+
+  let json: unknown;
+  try {
+    json = await request.json();
+  } catch {
+    return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
+  }
+
+  const parsed = bodySchema.safeParse(json);
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    return NextResponse.json(
+      { error: issue?.message ?? "Invalid request body" },
+      { status: 400 },
+    );
+  }
+
+  const results = await Promise.all(
+    parsed.data.tool_calls.map(async (toolCall) => {
+      const toolCallId = toolCall.id;
+      const toolName = toolCall.function.name.trim();
+      if (!toolName) {
+        return {
+          tool_call_id: toolCallId,
+          error: "Missing tool name",
+        };
+      }
+
+      let args: unknown = {};
+      const rawArgs = toolCall.function.arguments?.trim() ?? "";
+      if (rawArgs) {
+        try {
+          args = JSON.parse(rawArgs) as unknown;
+        } catch {
+          return {
+            tool_call_id: toolCallId,
+            error: "Tool arguments must be valid JSON",
+          };
+        }
+      }
+
+      try {
+        const result = await executeAppointmentTool({
+          agentId,
+          workspaceId,
+          toolName,
+          args,
+        });
+        return {
+          tool_call_id: toolCallId,
+          result,
+        };
+      } catch (error) {
+        return {
+          tool_call_id: toolCallId,
+          error:
+            error instanceof Error ? error.message : "Tool call failed",
+        };
+      }
+    }),
+  );
+
+  return NextResponse.json({ results });
+}

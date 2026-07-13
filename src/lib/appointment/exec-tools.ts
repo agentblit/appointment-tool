@@ -1,0 +1,330 @@
+import {
+  cancelAppointmentRecord,
+  createAppointmentRecord,
+  getAppointmentForWorkspace,
+  getByAgentId,
+  getEntityForWorkspace,
+  hasOverlappingConfirmedAppointment,
+  listAppointmentsForEntityInRange,
+  listAvailabilityRulesForEntity,
+  listEntities,
+  rescheduleAppointmentRecord,
+} from "@/lib/appointment/repo";
+import {
+  generateAvailableSlots,
+  isSlotWithinAvailability,
+} from "@/lib/appointment/appointment-utils";
+import {
+  bookAppointmentArgsSchema,
+  cancelAppointmentArgsSchema,
+  checkAvailableSlotsArgsSchema,
+  rescheduleAppointmentArgsSchema,
+} from "@/lib/appointment/tools";
+
+export type AppointmentToolCallResult = {
+  content: Array<{ type: "text"; text: string }>;
+};
+
+function mcpStyleResult(data: Record<string, unknown>): AppointmentToolCallResult {
+  const text = JSON.stringify(data, null, 2);
+  return { content: [{ type: "text", text }] };
+}
+
+async function assertConfiguredConnector(agentId: string) {
+  const connector = await getByAgentId(agentId);
+  if (!connector) {
+    throw new Error("Appointment connector is not configured for this agent");
+  }
+  return connector;
+}
+
+export async function executeAppointmentTool(options: {
+  agentId: string;
+  workspaceId: string;
+  toolName: string;
+  args: unknown;
+}): Promise<AppointmentToolCallResult> {
+  const { agentId, workspaceId, toolName, args } = options;
+
+  switch (toolName) {
+    case "list_entities":
+      return listEntitiesTool(agentId);
+    case "check_available_slots":
+      return checkAvailableSlotsTool({ agentId, workspaceId, args });
+    case "book_appointment":
+      return bookAppointmentTool({ agentId, workspaceId, args });
+    case "cancel_appointment":
+      return cancelAppointmentTool({ agentId, workspaceId, args });
+    case "reschedule_appointment":
+      return rescheduleAppointmentTool({ agentId, workspaceId, args });
+    default:
+      throw new Error(`Unknown Appointment tool: ${toolName}`);
+  }
+}
+
+async function listEntitiesTool(
+  agentId: string,
+): Promise<AppointmentToolCallResult> {
+  const connector = await assertConfiguredConnector(agentId);
+  const entities = await listEntities(connector.id);
+
+  return mcpStyleResult({
+    ok: true,
+    entity_label: connector.entityLabel,
+    entities: entities.map((entity) => ({
+      id: entity.id,
+      name: entity.name,
+      description: entity.description,
+      is_active: entity.isActive,
+    })),
+  });
+}
+
+async function checkAvailableSlotsTool(options: {
+  agentId: string;
+  workspaceId: string;
+  args: unknown;
+}): Promise<AppointmentToolCallResult> {
+  const parsed = checkAvailableSlotsArgsSchema.safeParse(options.args ?? {});
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    throw new Error(issue?.message ?? "Invalid check_available_slots arguments");
+  }
+
+  const connector = await assertConfiguredConnector(options.agentId);
+  const entity = await getEntityForWorkspace({
+    workspaceId: options.workspaceId,
+    entityId: parsed.data.entity_id,
+  });
+  if (!entity || entity.connector.id !== connector.id) {
+    throw new Error("Entity not found for this agent");
+  }
+
+  if (parsed.data.date_from > parsed.data.date_to) {
+    throw new Error("date_from must be on or before date_to");
+  }
+
+  const rules = await listAvailabilityRulesForEntity(entity.entity.id);
+  const appointments = await listAppointmentsForEntityInRange({
+    entityId: entity.entity.id,
+    dateFrom: new Date(`${parsed.data.date_from}T00:00:00.000Z`),
+    dateTo: new Date(`${parsed.data.date_to}T23:59:59.999Z`),
+  });
+
+  const slots = generateAvailableSlots({
+    rules,
+    existingAppointments: appointments,
+    dateFrom: parsed.data.date_from,
+    dateTo: parsed.data.date_to,
+    slotDurationMinutes: connector.slotDurationMinutes,
+    timezone: connector.timezone,
+  });
+
+  return mcpStyleResult({
+    ok: true,
+    entity_id: entity.entity.id,
+    entity_name: entity.entity.name,
+    entity_label: connector.entityLabel,
+    timezone: connector.timezone,
+    slot_duration_minutes: connector.slotDurationMinutes,
+    slots,
+  });
+}
+
+async function bookAppointmentTool(options: {
+  agentId: string;
+  workspaceId: string;
+  args: unknown;
+}): Promise<AppointmentToolCallResult> {
+  const parsed = bookAppointmentArgsSchema.safeParse(options.args ?? {});
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    throw new Error(issue?.message ?? "Invalid book_appointment arguments");
+  }
+
+  const connector = await assertConfiguredConnector(options.agentId);
+  const entity = await getEntityForWorkspace({
+    workspaceId: options.workspaceId,
+    entityId: parsed.data.entity_id,
+  });
+  if (!entity || entity.connector.id !== connector.id) {
+    throw new Error("Entity not found for this agent");
+  }
+
+  const slotStart = new Date(parsed.data.slot_start);
+  const slotEnd = new Date(parsed.data.slot_end);
+  if (Number.isNaN(slotStart.getTime()) || Number.isNaN(slotEnd.getTime())) {
+    throw new Error("Invalid slot start or end time");
+  }
+  if (slotEnd <= slotStart) {
+    throw new Error("slot_end must be after slot_start");
+  }
+
+  const durationMinutes = Math.round(
+    (slotEnd.getTime() - slotStart.getTime()) / 60_000,
+  );
+  if (durationMinutes !== connector.slotDurationMinutes) {
+    throw new Error(
+      `Slot duration must be ${connector.slotDurationMinutes} minutes`,
+    );
+  }
+
+  const rules = await listAvailabilityRulesForEntity(entity.entity.id);
+  if (
+    !isSlotWithinAvailability({
+      rules,
+      slotStart,
+      slotEnd,
+      timezone: connector.timezone,
+    })
+  ) {
+    throw new Error("Requested slot is outside configured availability");
+  }
+
+  const hasConflict = await hasOverlappingConfirmedAppointment({
+    entityId: entity.entity.id,
+    startTime: slotStart,
+    endTime: slotEnd,
+  });
+  if (hasConflict) {
+    throw new Error("Requested slot is no longer available");
+  }
+
+  const appointment = await createAppointmentRecord({
+    entityId: entity.entity.id,
+    bookerName: parsed.data.booker_name,
+    bookerEmail: parsed.data.booker_email,
+    startTime: slotStart,
+    endTime: slotEnd,
+  });
+
+  return mcpStyleResult({
+    ok: true,
+    appointment_id: appointment.id,
+    entity_id: entity.entity.id,
+    entity_name: entity.entity.name,
+    start_time: appointment.startTime.toISOString(),
+    end_time: appointment.endTime.toISOString(),
+    booker_name: appointment.bookerName,
+    booker_email: appointment.bookerEmail,
+    status: appointment.status,
+  });
+}
+
+async function cancelAppointmentTool(options: {
+  agentId: string;
+  workspaceId: string;
+  args: unknown;
+}): Promise<AppointmentToolCallResult> {
+  const parsed = cancelAppointmentArgsSchema.safeParse(options.args ?? {});
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    throw new Error(issue?.message ?? "Invalid cancel_appointment arguments");
+  }
+
+  const appointment = await getAppointmentForWorkspace({
+    workspaceId: options.workspaceId,
+    appointmentId: parsed.data.appointment_id,
+  });
+  if (!appointment || appointment.connector.agentId !== options.agentId) {
+    throw new Error("Appointment not found for this agent");
+  }
+  if (appointment.appointment.status === "cancelled") {
+    throw new Error("Appointment is already cancelled");
+  }
+
+  const updated = await cancelAppointmentRecord(appointment.appointment.id);
+  if (!updated) {
+    throw new Error("Failed to cancel appointment");
+  }
+
+  return mcpStyleResult({
+    ok: true,
+    appointment_id: updated.id,
+    status: updated.status,
+  });
+}
+
+async function rescheduleAppointmentTool(options: {
+  agentId: string;
+  workspaceId: string;
+  args: unknown;
+}): Promise<AppointmentToolCallResult> {
+  const parsed = rescheduleAppointmentArgsSchema.safeParse(options.args ?? {});
+  if (!parsed.success) {
+    const issue = parsed.error.issues[0];
+    throw new Error(
+      issue?.message ?? "Invalid reschedule_appointment arguments",
+    );
+  }
+
+  const appointment = await getAppointmentForWorkspace({
+    workspaceId: options.workspaceId,
+    appointmentId: parsed.data.appointment_id,
+  });
+  if (!appointment || appointment.connector.agentId !== options.agentId) {
+    throw new Error("Appointment not found for this agent");
+  }
+  if (appointment.appointment.status !== "confirmed") {
+    throw new Error("Only confirmed appointments can be rescheduled");
+  }
+
+  const connector = appointment.connector;
+  const slotStart = new Date(parsed.data.new_slot_start);
+  const slotEnd = new Date(parsed.data.new_slot_end);
+  if (Number.isNaN(slotStart.getTime()) || Number.isNaN(slotEnd.getTime())) {
+    throw new Error("Invalid slot start or end time");
+  }
+  if (slotEnd <= slotStart) {
+    throw new Error("new_slot_end must be after new_slot_start");
+  }
+
+  const durationMinutes = Math.round(
+    (slotEnd.getTime() - slotStart.getTime()) / 60_000,
+  );
+  if (durationMinutes !== connector.slotDurationMinutes) {
+    throw new Error(
+      `Slot duration must be ${connector.slotDurationMinutes} minutes`,
+    );
+  }
+
+  const rules = await listAvailabilityRulesForEntity(appointment.entity.id);
+  if (
+    !isSlotWithinAvailability({
+      rules,
+      slotStart,
+      slotEnd,
+      timezone: connector.timezone,
+    })
+  ) {
+    throw new Error("Requested slot is outside configured availability");
+  }
+
+  const hasConflict = await hasOverlappingConfirmedAppointment({
+    entityId: appointment.entity.id,
+    startTime: slotStart,
+    endTime: slotEnd,
+    excludeAppointmentId: appointment.appointment.id,
+  });
+  if (hasConflict) {
+    throw new Error("Requested slot is no longer available");
+  }
+
+  const updated = await rescheduleAppointmentRecord({
+    appointmentId: appointment.appointment.id,
+    startTime: slotStart,
+    endTime: slotEnd,
+  });
+  if (!updated) {
+    throw new Error("Failed to reschedule appointment");
+  }
+
+  return mcpStyleResult({
+    ok: true,
+    appointment_id: updated.id,
+    entity_id: appointment.entity.id,
+    start_time: updated.startTime.toISOString(),
+    end_time: updated.endTime.toISOString(),
+    status: updated.status,
+  });
+}
