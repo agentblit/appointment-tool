@@ -1,6 +1,14 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
+import {
+  type FormEvent,
+  type ReactNode,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { useSearchParams } from "next/navigation";
 import {
   APPOINTMENT_DAY_LABELS,
@@ -35,9 +43,15 @@ type SetupClaims = {
   connectorKey: string;
 };
 
+const STEPS: { id: Step; label: string }[] = [
+  { id: "config", label: "Settings" },
+  { id: "entities", label: "Entities" },
+  { id: "availability", label: "Availability" },
+];
+
 const defaultConfig: ConnectorConfig = {
   entityLabel: "Doctor",
-  timezone: "Asia/Kolkata",
+  timezone: "UTC",
   slotDurationMinutes: 30,
 };
 
@@ -48,7 +62,6 @@ const timeInputClassName =
 const labelClassName =
   "mb-1.5 block text-sm font-semibold text-zinc-900 dark:text-zinc-100";
 const hintClassName = "mt-1 text-xs text-zinc-500";
-const errorClassName = "mb-4 text-sm text-red-600 dark:text-red-400";
 const buttonPrimaryClassName =
   "inline-flex h-10 cursor-pointer items-center justify-center gap-2 rounded-md bg-zinc-900 px-4 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-50 dark:bg-zinc-100 dark:text-zinc-900";
 const buttonOutlineClassName =
@@ -107,6 +120,91 @@ function setupQuery(claims: SetupClaims) {
   }).toString();
 }
 
+function SetupShell({
+  step,
+  onStepChange,
+  error,
+  children,
+  loading = false,
+}: {
+  step: Step;
+  onStepChange?: (step: Step) => void;
+  error: string;
+  children: ReactNode;
+  loading?: boolean;
+}) {
+  return (
+    <div className="mx-auto w-full max-w-3xl px-4 py-10">
+      <header className="mb-6">
+        <h1 className="text-base font-semibold text-zinc-900 dark:text-zinc-50">
+          Appointment setup
+        </h1>
+        <p className="mt-1 text-sm leading-5 text-zinc-500">
+          Configure bookable entities, availability, and slot duration for this
+          agent.
+        </p>
+      </header>
+
+      <nav aria-label="Setup steps" className="mb-6">
+        <ol className="flex flex-wrap gap-2">
+          {STEPS.map((item, index) => {
+            const selected = step === item.id;
+            const reachable = onStepChange && !loading;
+
+            return (
+              <li key={item.id}>
+                <button
+                  type="button"
+                  disabled={!reachable}
+                  aria-current={selected ? "step" : undefined}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    onStepChange?.(item.id);
+                  }}
+                  className={`inline-flex h-9 cursor-pointer items-center rounded-md border px-3 text-sm transition-colors disabled:cursor-default ${
+                    selected
+                      ? "border-zinc-900 bg-zinc-100 font-medium text-zinc-900 dark:border-zinc-100 dark:bg-zinc-800 dark:text-zinc-50"
+                      : "border-zinc-300 text-zinc-500 hover:text-zinc-900 disabled:hover:text-zinc-500 dark:border-zinc-700 dark:hover:text-zinc-100"
+                  }`}
+                >
+                  <span className="tabular-nums">{index + 1}.</span>
+                  <span className="ml-1">{item.label}</span>
+                </button>
+              </li>
+            );
+          })}
+        </ol>
+      </nav>
+
+      <div
+        className="mb-4 min-h-5"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {error ? (
+          <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
+        ) : null}
+      </div>
+
+      <div className="relative">
+        {loading ? (
+          <div className="space-y-4" aria-busy="true" aria-live="polite">
+            <div className="h-4 w-40 animate-pulse rounded bg-zinc-200 dark:bg-zinc-800" />
+            <div className="h-10 w-full animate-pulse rounded-md bg-zinc-200 dark:bg-zinc-800" />
+            <div className="h-4 w-56 animate-pulse rounded bg-zinc-200 dark:bg-zinc-800" />
+            <div className="h-10 w-full animate-pulse rounded-md bg-zinc-200 dark:bg-zinc-800" />
+            <div className="h-10 w-full animate-pulse rounded-md bg-zinc-200 dark:bg-zinc-800" />
+            <p className="pt-2 text-sm text-zinc-500">Loading setup…</p>
+          </div>
+        ) : (
+          children
+        )}
+      </div>
+    </div>
+  );
+}
+
 function AppointmentSetupWizard() {
   const searchParams = useSearchParams();
   const agentIdParam = searchParams.get("agentId")?.trim() ?? "";
@@ -129,6 +227,9 @@ function AppointmentSetupWizard() {
   const [pendingAction, setPendingAction] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [config, setConfig] = useState<ConnectorConfig>(defaultConfig);
+  const [timezoneOptions, setTimezoneOptions] = useState<string[]>([
+    ...APPOINTMENT_TIMEZONES,
+  ]);
   const [entities, setEntities] = useState<EntityRow[]>([]);
   const [newEntityName, setNewEntityName] = useState("");
   const [newEntityDescription, setNewEntityDescription] = useState("");
@@ -136,6 +237,9 @@ function AppointmentSetupWizard() {
   const [availabilityDrafts, setAvailabilityDrafts] = useState<
     Record<string, Record<number, AvailabilityRule[]>>
   >({});
+  const [savedAvailabilityId, setSavedAvailabilityId] = useState<string | null>(
+    null,
+  );
 
   const agentId = claims?.agentId ?? "";
 
@@ -151,6 +255,18 @@ function AppointmentSetupWizard() {
       workspaceId: workspaceIdParam,
       connectorKey: connectorKeyParam,
     };
+
+    const browserTimezone =
+      typeof Intl !== "undefined"
+        ? Intl.DateTimeFormat().resolvedOptions().timeZone?.trim() || ""
+        : "";
+    if (browserTimezone) {
+      setTimezoneOptions((current) =>
+        current.includes(browserTimezone)
+          ? current
+          : [browserTimezone, ...current],
+      );
+    }
 
     setLoading(true);
     setError("");
@@ -174,9 +290,15 @@ function AppointmentSetupWizard() {
       }
 
       if (data.connector) {
+        const savedTimezone = data.connector.timezone;
+        setTimezoneOptions((current) =>
+          current.includes(savedTimezone)
+            ? current
+            : [savedTimezone, ...current],
+        );
         setConfig({
           entityLabel: data.connector.entityLabel,
-          timezone: data.connector.timezone,
+          timezone: savedTimezone,
           slotDurationMinutes: data.connector.slotDurationMinutes,
         });
         setEntities(data.connector.entities);
@@ -191,6 +313,11 @@ function AppointmentSetupWizard() {
         if (data.connector.entities.length > 0) {
           setExpandedEntityId(data.connector.entities[0]?.id ?? null);
         }
+      } else if (browserTimezone) {
+        setConfig((current) => ({
+          ...current,
+          timezone: browserTimezone,
+        }));
       }
     } catch (loadError) {
       setError(
@@ -252,14 +379,16 @@ function AppointmentSetupWizard() {
     }
   }
 
-  async function handleConfigNext() {
+  async function handleConfigNext(event?: FormEvent) {
+    event?.preventDefault();
     const saved = await saveConfig(false);
     if (saved) {
       setStep("entities");
     }
   }
 
-  async function handleAddEntity() {
+  async function handleAddEntity(event?: FormEvent) {
+    event?.preventDefault();
     if (!claims) {
       setError("Missing setup params. Return to Agentblit and try again.");
       return;
@@ -355,6 +484,7 @@ function AppointmentSetupWizard() {
     dayOfWeek: number,
     updater: (rules: AvailabilityRule[]) => AvailabilityRule[],
   ) {
+    setSavedAvailabilityId(null);
     setAvailabilityDrafts((current) => {
       const entityMap = current[entityId] ?? emptyAvailabilityByDay();
       return {
@@ -377,6 +507,7 @@ function AppointmentSetupWizard() {
 
     setPendingAction(`availability:${entityId}`);
     setError("");
+    setSavedAvailabilityId(null);
     try {
       const res = await fetch(
         `/api/connectors/${encodeURIComponent(agentId)}/entities/${encodeURIComponent(entityId)}/availability?${setupQuery(claims)}`,
@@ -402,6 +533,7 @@ function AppointmentSetupWizard() {
             : entity,
         ),
       );
+      setSavedAvailabilityId(entityId);
     } catch (saveError) {
       setError(
         saveError instanceof Error
@@ -413,7 +545,8 @@ function AppointmentSetupWizard() {
     }
   }
 
-  async function handleFinalize() {
+  async function handleFinalize(event?: FormEvent) {
+    event?.preventDefault();
     if (entities.length === 0) {
       setError(`Add at least one ${config.entityLabel.toLowerCase()}`);
       setStep("entities");
@@ -432,51 +565,23 @@ function AppointmentSetupWizard() {
     await saveConfig(true);
   }
 
-  if (loading) {
-    return (
-      <div className="mx-auto max-w-3xl px-4 py-10">
-        <p className="text-sm text-zinc-500">Loading setup…</p>
-      </div>
-    );
+  function goToStep(next: Step) {
+    setError("");
+    setStep(next);
   }
 
   return (
-    <div className="mx-auto max-w-3xl px-4 py-10">
-      <div className="mb-6">
-        <h1 className="text-base font-semibold text-zinc-900 dark:text-zinc-50">
-          Appointment setup
-        </h1>
-        <p className="mt-1 text-sm text-zinc-500">
-          Configure bookable {config.entityLabel.toLowerCase()}s, availability,
-          and slot duration for this agent.
-        </p>
-      </div>
-
-      <div className="mb-6 flex flex-wrap gap-2">
-        {(["config", "entities", "availability"] as const).map((item) => (
-          <button
-            key={item}
-            type="button"
-            onClick={() => setStep(item)}
-            className={`cursor-pointer rounded-md border px-3 py-1.5 text-sm transition-colors ${
-              step === item
-                ? "border-zinc-900 bg-zinc-100 text-zinc-900 dark:border-zinc-100 dark:bg-zinc-800 dark:text-zinc-50"
-                : "border-zinc-300 text-zinc-500 hover:text-zinc-900 dark:border-zinc-700 dark:hover:text-zinc-100"
-            }`}
-          >
-            {item === "config"
-              ? "1. Settings"
-              : item === "entities"
-                ? "2. Entities"
-                : "3. Availability"}
-          </button>
-        ))}
-      </div>
-
-      {error ? <p className={errorClassName}>{error}</p> : null}
-
+    <SetupShell
+      step={step}
+      onStepChange={loading ? undefined : goToStep}
+      error={error}
+      loading={loading}
+    >
       {step === "config" ? (
-        <div className="space-y-6">
+        <form
+          className="flex flex-col space-y-6"
+          onSubmit={(event) => void handleConfigNext(event)}
+        >
           <div>
             <label className={labelClassName} htmlFor="entity-label">
               Entity name
@@ -501,7 +606,7 @@ function AppointmentSetupWizard() {
 
           <div>
             <label className={labelClassName} htmlFor="timezone">
-              Timezone
+              Business timezone
             </label>
             <select
               id="timezone"
@@ -514,12 +619,16 @@ function AppointmentSetupWizard() {
                 }))
               }
             >
-              {APPOINTMENT_TIMEZONES.map((timezone) => (
+              {timezoneOptions.map((timezone) => (
                 <option key={timezone} value={timezone}>
                   {timezone}
                 </option>
               ))}
             </select>
+            <p className={hintClassName}>
+              Availability windows are interpreted in this timezone. Chat users
+              can each use their own local timezone when booking.
+            </p>
           </div>
 
           <div>
@@ -545,22 +654,24 @@ function AppointmentSetupWizard() {
             </select>
           </div>
 
-          <div className="flex justify-end pt-2">
+          <div className={`${footerClassName} justify-end`}>
             <button
-              type="button"
+              type="submit"
               className={buttonPrimaryClassName}
-              onClick={() => void handleConfigNext()}
               disabled={isBusy}
             >
               {pendingAction === "config" ? "Saving…" : "Continue"}
             </button>
           </div>
-        </div>
+        </form>
       ) : null}
 
       {step === "entities" ? (
-        <div className="space-y-6">
-          <div>
+        <div className="flex flex-col space-y-6">
+          <form
+            className="space-y-1.5"
+            onSubmit={(event) => void handleAddEntity(event)}
+          >
             <label className={labelClassName} htmlFor="entity-name">
               Add {config.entityLabel.toLowerCase()}
             </label>
@@ -580,56 +691,63 @@ function AppointmentSetupWizard() {
                 placeholder="Description (optional)"
               />
               <button
-                type="button"
+                type="submit"
                 className={`${buttonOutlineClassName} shrink-0`}
-                onClick={() => void handleAddEntity()}
                 disabled={isBusy}
               >
                 {pendingAction === "add-entity" ? "Adding…" : "Add"}
               </button>
             </div>
-          </div>
+          </form>
 
-          {entities.length === 0 ? (
-            <p className="text-sm text-zinc-500">
-              No {config.entityLabel.toLowerCase()}s added yet.
-            </p>
-          ) : (
-            <ul className="divide-y divide-zinc-200 overflow-hidden rounded-md border border-zinc-300 dark:divide-zinc-800 dark:border-zinc-700">
-              {entities.map((entity) => (
-                <li
-                  key={entity.id}
-                  className="flex items-center gap-3 px-3 py-2.5"
-                >
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm text-zinc-900 dark:text-zinc-50">
-                      {entity.name}
-                    </p>
-                    {entity.description ? (
-                      <p className="truncate text-xs text-zinc-500">
-                        {entity.description}
-                      </p>
-                    ) : null}
-                  </div>
-                  <button
-                    type="button"
-                    className={iconButtonClassName}
-                    onClick={() => void handleDeleteEntity(entity.id)}
-                    disabled={isBusy}
-                    aria-label={`Delete ${entity.name}`}
+          <div className="min-h-24">
+            {entities.length === 0 ? (
+              <p className="text-sm text-zinc-500">
+                No {config.entityLabel.toLowerCase()}s added yet.
+              </p>
+            ) : (
+              <ul className="divide-y divide-zinc-200 overflow-hidden rounded-md border border-zinc-300 dark:divide-zinc-800 dark:border-zinc-700">
+                {entities.map((entity) => (
+                  <li
+                    key={entity.id}
+                    className="flex items-center gap-3 px-3 py-2.5"
                   >
-                    <TrashIcon />
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm text-zinc-900 dark:text-zinc-50">
+                        {entity.name}
+                      </p>
+                      {entity.description ? (
+                        <p className="truncate text-xs text-zinc-500">
+                          {entity.description}
+                        </p>
+                      ) : null}
+                    </div>
+                    <button
+                      type="button"
+                      className={iconButtonClassName}
+                      onClick={(event) => {
+                        event.preventDefault();
+                        void handleDeleteEntity(entity.id);
+                      }}
+                      disabled={isBusy}
+                      aria-label={`Delete ${entity.name}`}
+                    >
+                      <TrashIcon />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
 
           <div className={footerClassName}>
             <button
               type="button"
               className={buttonOutlineClassName}
-              onClick={() => setStep("config")}
+              onClick={(event) => {
+                event.preventDefault();
+                goToStep("config");
+              }}
               disabled={isBusy}
             >
               Back
@@ -637,7 +755,10 @@ function AppointmentSetupWizard() {
             <button
               type="button"
               className={buttonPrimaryClassName}
-              onClick={() => setStep("availability")}
+              onClick={(event) => {
+                event.preventDefault();
+                goToStep("availability");
+              }}
               disabled={isBusy || entities.length === 0}
             >
               Continue
@@ -647,226 +768,241 @@ function AppointmentSetupWizard() {
       ) : null}
 
       {step === "availability" ? (
-        <div className="space-y-6">
-          {entities.length === 0 ? (
-            <p className="text-sm text-zinc-500">
-              Add entities before configuring availability.
-            </p>
-          ) : (
-            <div className="space-y-3">
-              {entities.map((entity) => {
-                const open = expandedEntityId === entity.id;
-                const draft =
-                  availabilityDrafts[entity.id] ?? emptyAvailabilityByDay();
+        <form
+          className="flex flex-col space-y-6"
+          onSubmit={(event) => void handleFinalize(event)}
+        >
+          <div>
+            {entities.length === 0 ? (
+              <p className="text-sm text-zinc-500">
+                Add entities before configuring availability.
+              </p>
+            ) : (
+              <div className="space-y-3">
+                {entities.map((entity) => {
+                  const open = expandedEntityId === entity.id;
+                  const draft =
+                    availabilityDrafts[entity.id] ?? emptyAvailabilityByDay();
 
-                return (
-                  <div
-                    key={entity.id}
-                    className="overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-700"
-                  >
-                    <button
-                      type="button"
-                      className="flex w-full cursor-pointer items-center gap-2 px-3 py-2.5 text-left hover:bg-zinc-50 dark:hover:bg-zinc-900/50"
-                      onClick={() =>
-                        setExpandedEntityId(open ? null : entity.id)
-                      }
+                  return (
+                    <div
+                      key={entity.id}
+                      className="overflow-hidden rounded-md border border-zinc-300 dark:border-zinc-700"
                     >
-                      <span className="w-3 shrink-0 text-xs text-zinc-500">
-                        {open ? "▾" : "▸"}
-                      </span>
-                      <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
-                        {entity.name}
-                      </span>
-                    </button>
+                      <button
+                        type="button"
+                        className="flex w-full cursor-pointer items-center gap-2 px-3 py-2.5 text-left hover:bg-zinc-50 dark:hover:bg-zinc-900/50"
+                        aria-expanded={open}
+                        onClick={(event) => {
+                          event.preventDefault();
+                          setExpandedEntityId(open ? null : entity.id);
+                        }}
+                      >
+                        <span className="w-3 shrink-0 text-xs text-zinc-500">
+                          {open ? "▾" : "▸"}
+                        </span>
+                        <span className="text-sm font-semibold text-zinc-900 dark:text-zinc-50">
+                          {entity.name}
+                        </span>
+                      </button>
 
-                    {open ? (
-                      <div className="space-y-3 border-t border-zinc-300 px-3 py-3 dark:border-zinc-700">
-                        {APPOINTMENT_DAY_LABELS.map((label, dayOfWeek) => {
-                          const dayRules = draft[dayOfWeek] ?? [];
-                          const enabled = dayRules.length > 0;
+                      {open ? (
+                        <div className="space-y-3 border-t border-zinc-300 px-3 py-3 dark:border-zinc-700">
+                          {APPOINTMENT_DAY_LABELS.map((label, dayOfWeek) => {
+                            const dayRules = draft[dayOfWeek] ?? [];
+                            const enabled = dayRules.length > 0;
 
-                          return (
-                            <div
-                              key={label}
-                              className="flex h-9 items-center gap-3"
-                            >
-                              <label className="flex w-28 shrink-0 cursor-pointer items-center gap-2 text-sm text-zinc-900 dark:text-zinc-50">
-                                <input
-                                  type="checkbox"
-                                  className="cursor-pointer"
-                                  checked={enabled}
-                                  onChange={(event) => {
-                                    if (event.target.checked) {
-                                      updateAvailabilityDraft(
-                                        entity.id,
-                                        dayOfWeek,
-                                        () => [
-                                          {
-                                            dayOfWeek,
-                                            startTime: "09:00",
-                                            endTime: "18:00",
-                                          },
-                                        ],
-                                      );
-                                    } else {
-                                      updateAvailabilityDraft(
-                                        entity.id,
-                                        dayOfWeek,
-                                        () => [],
-                                      );
-                                    }
-                                  }}
-                                />
-                                {label}
-                              </label>
+                            return (
+                              <div
+                                key={label}
+                                className="flex min-h-9 items-start gap-3"
+                              >
+                                <label className="flex h-9 w-28 shrink-0 cursor-pointer items-center gap-2 text-sm text-zinc-900 dark:text-zinc-50">
+                                  <input
+                                    type="checkbox"
+                                    className="cursor-pointer"
+                                    checked={enabled}
+                                    onChange={(event) => {
+                                      if (event.target.checked) {
+                                        updateAvailabilityDraft(
+                                          entity.id,
+                                          dayOfWeek,
+                                          () => [
+                                            {
+                                              dayOfWeek,
+                                              startTime: "09:00",
+                                              endTime: "18:00",
+                                            },
+                                          ],
+                                        );
+                                      } else {
+                                        updateAvailabilityDraft(
+                                          entity.id,
+                                          dayOfWeek,
+                                          () => [],
+                                        );
+                                      }
+                                    }}
+                                  />
+                                  {label}
+                                </label>
 
-                              {enabled ? (
-                                <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto">
-                                  {dayRules.map((rule, index) => (
-                                    <div
-                                      key={`${dayOfWeek}-${index}`}
-                                      className="flex shrink-0 items-center gap-1.5"
-                                    >
-                                      {index > 0 ? (
-                                        <span
-                                          className="mx-0.5 h-4 w-px shrink-0 bg-zinc-300 dark:bg-zinc-700"
-                                          aria-hidden
-                                        />
-                                      ) : null}
-                                      <input
-                                        type="time"
-                                        className={timeInputClassName}
-                                        value={rule.startTime}
-                                        onChange={(event) =>
-                                          updateAvailabilityDraft(
-                                            entity.id,
-                                            dayOfWeek,
-                                            (rules) =>
-                                              rules.map((item, itemIndex) =>
-                                                itemIndex === index
-                                                  ? {
-                                                      ...item,
-                                                      startTime:
-                                                        event.target.value,
-                                                    }
-                                                  : item,
-                                              ),
-                                          )
-                                        }
-                                      />
-                                      <span className="shrink-0 text-xs text-zinc-500">
-                                        to
-                                      </span>
-                                      <input
-                                        type="time"
-                                        className={timeInputClassName}
-                                        value={rule.endTime}
-                                        onChange={(event) =>
-                                          updateAvailabilityDraft(
-                                            entity.id,
-                                            dayOfWeek,
-                                            (rules) =>
-                                              rules.map((item, itemIndex) =>
-                                                itemIndex === index
-                                                  ? {
-                                                      ...item,
-                                                      endTime:
-                                                        event.target.value,
-                                                    }
-                                                  : item,
-                                              ),
-                                          )
-                                        }
-                                      />
-                                      <button
-                                        type="button"
-                                        className={iconButtonClassName}
-                                        onClick={() =>
-                                          updateAvailabilityDraft(
-                                            entity.id,
-                                            dayOfWeek,
-                                            (rules) =>
-                                              rules.filter(
-                                                (_, itemIndex) =>
-                                                  itemIndex !== index,
-                                              ),
-                                          )
-                                        }
-                                        aria-label="Remove time window"
+                                {enabled ? (
+                                  <div className="flex min-w-0 flex-1 flex-col gap-2">
+                                    {dayRules.map((rule, index) => (
+                                      <div
+                                        key={`${dayOfWeek}-${index}`}
+                                        className="flex flex-wrap items-center gap-1.5"
                                       >
-                                        <TrashIcon className="h-3.5 w-3.5" />
-                                      </button>
-                                    </div>
-                                  ))}
-                                  <button
-                                    type="button"
-                                    className="inline-flex h-8 shrink-0 cursor-pointer items-center rounded-md border border-zinc-300 px-2.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-900"
-                                    onClick={() =>
-                                      updateAvailabilityDraft(
-                                        entity.id,
-                                        dayOfWeek,
-                                        (rules) => [
-                                          ...rules,
-                                          {
-                                            dayOfWeek,
-                                            startTime: "14:00",
-                                            endTime: "18:00",
-                                          },
-                                        ],
-                                      )
-                                    }
-                                  >
-                                    Add window
-                                  </button>
-                                </div>
-                              ) : null}
-                            </div>
-                          );
-                        })}
+                                        <input
+                                          type="time"
+                                          className={timeInputClassName}
+                                          value={rule.startTime}
+                                          onChange={(event) =>
+                                            updateAvailabilityDraft(
+                                              entity.id,
+                                              dayOfWeek,
+                                              (rules) =>
+                                                rules.map((item, itemIndex) =>
+                                                  itemIndex === index
+                                                    ? {
+                                                        ...item,
+                                                        startTime:
+                                                          event.target.value,
+                                                      }
+                                                    : item,
+                                                ),
+                                            )
+                                          }
+                                        />
+                                        <span className="shrink-0 text-xs text-zinc-500">
+                                          to
+                                        </span>
+                                        <input
+                                          type="time"
+                                          className={timeInputClassName}
+                                          value={rule.endTime}
+                                          onChange={(event) =>
+                                            updateAvailabilityDraft(
+                                              entity.id,
+                                              dayOfWeek,
+                                              (rules) =>
+                                                rules.map((item, itemIndex) =>
+                                                  itemIndex === index
+                                                    ? {
+                                                        ...item,
+                                                        endTime:
+                                                          event.target.value,
+                                                      }
+                                                    : item,
+                                                ),
+                                            )
+                                          }
+                                        />
+                                        <button
+                                          type="button"
+                                          className={iconButtonClassName}
+                                          onClick={(event) => {
+                                            event.preventDefault();
+                                            updateAvailabilityDraft(
+                                              entity.id,
+                                              dayOfWeek,
+                                              (rules) =>
+                                                rules.filter(
+                                                  (_, itemIndex) =>
+                                                    itemIndex !== index,
+                                                ),
+                                            );
+                                          }}
+                                          aria-label="Remove time window"
+                                        >
+                                          <TrashIcon className="h-3.5 w-3.5" />
+                                        </button>
+                                        {index === dayRules.length - 1 ? (
+                                          <button
+                                            type="button"
+                                            className="inline-flex h-8 cursor-pointer items-center rounded-md border border-zinc-300 px-2.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 dark:border-zinc-700 dark:text-zinc-200 dark:hover:bg-zinc-900"
+                                            onClick={(event) => {
+                                              event.preventDefault();
+                                              updateAvailabilityDraft(
+                                                entity.id,
+                                                dayOfWeek,
+                                                (rules) => [
+                                                  ...rules,
+                                                  {
+                                                    dayOfWeek,
+                                                    startTime: "14:00",
+                                                    endTime: "18:00",
+                                                  },
+                                                ],
+                                              );
+                                            }}
+                                          >
+                                            Add window
+                                          </button>
+                                        ) : null}
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : (
+                                  <div className="min-h-9 flex-1" aria-hidden />
+                                )}
+                              </div>
+                            );
+                          })}
 
-                        <div className="pt-1">
-                          <button
-                            type="button"
-                            className={buttonOutlineClassName}
-                            onClick={() =>
-                              void handleSaveAvailability(entity.id)
-                            }
-                            disabled={isBusy}
-                          >
-                            {pendingAction === `availability:${entity.id}`
-                              ? "Saving…"
-                              : "Save availability"}
-                          </button>
+                          <div className="flex min-h-10 items-center gap-3 pt-1">
+                            <button
+                              type="button"
+                              className={buttonOutlineClassName}
+                              onClick={(event) => {
+                                event.preventDefault();
+                                void handleSaveAvailability(entity.id);
+                              }}
+                              disabled={isBusy}
+                            >
+                              {pendingAction === `availability:${entity.id}`
+                                ? "Saving…"
+                                : "Save availability"}
+                            </button>
+                            <p className="text-xs text-zinc-500">
+                              {savedAvailabilityId === entity.id
+                                ? "Saved"
+                                : "\u00a0"}
+                            </p>
+                          </div>
                         </div>
-                      </div>
-                    ) : null}
-                  </div>
-                );
-              })}
-            </div>
-          )}
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
 
           <div className={footerClassName}>
             <button
               type="button"
               className={buttonOutlineClassName}
-              onClick={() => setStep("entities")}
+              onClick={(event) => {
+                event.preventDefault();
+                goToStep("entities");
+              }}
               disabled={isBusy}
             >
               Back
             </button>
             <button
-              type="button"
+              type="submit"
               className={buttonPrimaryClassName}
-              onClick={() => void handleFinalize()}
               disabled={isBusy}
             >
               {pendingAction === "finalize" ? "Saving…" : "Save and finish"}
             </button>
           </div>
-        </div>
+        </form>
       ) : null}
-    </div>
+    </SetupShell>
   );
 }
 
@@ -874,9 +1010,9 @@ export default function AppointmentSetupPage() {
   return (
     <Suspense
       fallback={
-        <div className="mx-auto max-w-3xl px-4 py-10">
-          <p className="text-sm text-zinc-500">Loading setup…</p>
-        </div>
+        <SetupShell step="config" error="" loading>
+          {null}
+        </SetupShell>
       }
     >
       <AppointmentSetupWizard />

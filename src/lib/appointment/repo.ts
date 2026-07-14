@@ -237,6 +237,32 @@ export async function getAppointmentById(appointmentId: string) {
   return rows[0] ?? null;
 }
 
+export async function listAppointmentsForBookerInConnector(options: {
+  connectorId: string;
+  bookerEmail: string;
+}) {
+  return db
+    .select({
+      appointment: appointmentAppointments,
+      entity: appointmentEntities,
+    })
+    .from(appointmentAppointments)
+    .innerJoin(
+      appointmentEntities,
+      eq(appointmentAppointments.entityId, appointmentEntities.id),
+    )
+    .where(
+      and(
+        eq(appointmentEntities.connectorId, options.connectorId),
+        eq(
+          appointmentAppointments.bookerEmail,
+          options.bookerEmail.trim().toLowerCase(),
+        ),
+      ),
+    )
+    .orderBy(asc(appointmentAppointments.startTime));
+}
+
 export async function getAppointmentForWorkspace(options: {
   workspaceId: string;
   appointmentId: string;

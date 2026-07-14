@@ -28,19 +28,16 @@ Setup URL includes query params: `agentId`, `workspaceId`, `connectorKey`.
 
 ## Local development
 
+Postgres runs in Docker; the app runs locally with hot reload:
+
 ```bash
 cp .env.example .env
-docker compose up --build
-# app: http://localhost:3080
-# postgres: localhost:5433
-```
-
-Or without Docker for the app:
-
-```bash
+docker compose up -d
 pnpm install
 pnpm db:migrate
-pnpm dev --port 3080
+pnpm dev
+# app: http://localhost:3080
+# postgres: localhost:5433
 ```
 
 ## Environment

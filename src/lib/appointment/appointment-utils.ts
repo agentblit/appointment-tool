@@ -56,6 +56,53 @@ export function formatDateInTimezone(date: Date, timezone: string): string {
   }).format(date);
 }
 
+/** Format an instant as `YYYY-MM-DD HH:MM` in the given IANA timezone. */
+export function formatDateTimeInTimezone(date: Date, timezone: string): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(date);
+  const read = (type: string) =>
+    parts.find((part) => part.type === type)?.value ?? "00";
+  const hour = read("hour") === "24" ? "00" : read("hour");
+  return `${read("year")}-${read("month")}-${read("day")} ${hour}:${read("minute")}`;
+}
+
+export function isValidIanaTimezone(timezone: string): boolean {
+  try {
+    Intl.DateTimeFormat(undefined, { timeZone: timezone });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Convert an inclusive calendar day range in `timezone` to UTC bounds.
+ * `utcToExclusive` is the instant of the next local midnight after dateTo.
+ */
+export function userDateRangeToUtcBounds(
+  dateFrom: string,
+  dateTo: string,
+  timezone: string,
+): { utcFrom: Date; utcToExclusive: Date } {
+  const utcFrom = zonedDateTimeToUtc(dateFrom, "00:00", timezone);
+  const endNoon = zonedDateTimeToUtc(dateTo, "12:00", timezone);
+  const nextLocalDate = formatDateInTimezone(
+    new Date(endNoon.getTime() + 24 * 60 * 60 * 1000),
+    timezone,
+  );
+  return {
+    utcFrom,
+    utcToExclusive: zonedDateTimeToUtc(nextLocalDate, "00:00", timezone),
+  };
+}
+
 export function getWeekdayInTimezone(date: Date, timezone: string): number {
   const weekday = new Intl.DateTimeFormat("en-US", {
     timeZone: timezone,

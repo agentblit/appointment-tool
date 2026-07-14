@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { APPOINTMENT_SLOT_DURATION_MINUTES } from "@/lib/appointment/constants";
+import { isValidIanaTimezone } from "@/lib/appointment/appointment-utils";
 
 /** Matches agentblit `ToolPermissionMode` wire values. */
 export enum ToolPermissionMode {
@@ -28,12 +29,19 @@ const isoDateSchema = z
 const isoDateTimeSchema = z
   .string()
   .trim()
-  .datetime({ offset: true, message: "Date-time must be ISO 8601" });
+  .datetime({ offset: true, message: "Date-time must be ISO 8601 with offset" });
+
+const userTimezoneSchema = z
+  .string()
+  .trim()
+  .min(1, "timezone is required")
+  .refine(isValidIanaTimezone, "timezone must be a valid IANA timezone");
 
 export const checkAvailableSlotsArgsSchema = z.object({
   entity_id: z.string().uuid("entity_id must be a valid UUID"),
   date_from: isoDateSchema,
   date_to: isoDateSchema,
+  timezone: userTimezoneSchema,
 });
 
 export const bookAppointmentArgsSchema = z.object({
@@ -42,21 +50,33 @@ export const bookAppointmentArgsSchema = z.object({
   slot_end: isoDateTimeSchema,
   booker_name: z.string().trim().min(1, "booker_name is required"),
   booker_email: z.string().trim().email("booker_email must be a valid email"),
+  timezone: userTimezoneSchema,
 });
 
 export const cancelAppointmentArgsSchema = z.object({
   appointment_id: z.string().uuid("appointment_id must be a valid UUID"),
+  timezone: userTimezoneSchema.optional(),
 });
 
 export const rescheduleAppointmentArgsSchema = z.object({
   appointment_id: z.string().uuid("appointment_id must be a valid UUID"),
   new_slot_start: isoDateTimeSchema,
   new_slot_end: isoDateTimeSchema,
+  timezone: userTimezoneSchema,
+});
+
+export const listUserAppointmentsArgsSchema = z.object({
+  booker_email: z.string().trim().email("booker_email must be a valid email"),
+  timezone: userTimezoneSchema.optional(),
 });
 
 export const appointmentConnectorConfigSchema = z.object({
   entityLabel: z.string().trim().min(1, "Entity label is required").max(100),
-  timezone: z.string().trim().min(1, "Timezone is required"),
+  timezone: z
+    .string()
+    .trim()
+    .min(1, "Timezone is required")
+    .refine(isValidIanaTimezone, "Timezone must be a valid IANA timezone"),
   slotDurationMinutes: z
     .number()
     .int()
@@ -93,6 +113,12 @@ export const appointmentAvailabilityRulesSchema = z.object({
     .default([]),
 });
 
+const timezoneProperty = {
+  type: "string",
+  description:
+    "IANA timezone of the chat user (e.g. America/New_York). Dates and local times are interpreted/displayed in this timezone.",
+};
+
 export const APPOINTMENT_TOOLS: Tool[] = [
   {
     name: "list_entities",
@@ -107,7 +133,7 @@ export const APPOINTMENT_TOOLS: Tool[] = [
   {
     name: "check_available_slots",
     description:
-      "Check available appointment slots for a configured entity within a date range.",
+      "Check available appointment slots for a configured entity within a date range. Pass the chat user's IANA timezone so date_from/date_to and returned local times match that user.",
     parameters: {
       type: "object",
       properties: {
@@ -117,21 +143,23 @@ export const APPOINTMENT_TOOLS: Tool[] = [
         },
         date_from: {
           type: "string",
-          description: "Start date in YYYY-MM-DD",
+          description:
+            "Start date (YYYY-MM-DD) in the chat user's timezone",
         },
         date_to: {
           type: "string",
-          description: "End date in YYYY-MM-DD",
+          description: "End date (YYYY-MM-DD) in the chat user's timezone",
         },
+        timezone: timezoneProperty,
       },
-      required: ["entity_id", "date_from", "date_to"],
+      required: ["entity_id", "date_from", "date_to", "timezone"],
     },
     permissionMode: allow,
   },
   {
     name: "book_appointment",
     description:
-      "Book an appointment slot for a configured entity using the booker's name and email.",
+      "Book an appointment slot for a configured entity using the booker's name and email. Use ISO-8601 times with offset (prefer values returned by check_available_slots). Pass the chat user's timezone for local confirmation times.",
     parameters: {
       type: "object",
       properties: {
@@ -141,11 +169,12 @@ export const APPOINTMENT_TOOLS: Tool[] = [
         },
         slot_start: {
           type: "string",
-          description: "Slot start time in ISO 8601",
+          description:
+            "Slot start as ISO 8601 with offset (UTC or local offset)",
         },
         slot_end: {
           type: "string",
-          description: "Slot end time in ISO 8601",
+          description: "Slot end as ISO 8601 with offset (UTC or local offset)",
         },
         booker_name: {
           type: "string",
@@ -155,6 +184,7 @@ export const APPOINTMENT_TOOLS: Tool[] = [
           type: "string",
           description: "Email of the person booking the appointment",
         },
+        timezone: timezoneProperty,
       },
       required: [
         "entity_id",
@@ -162,6 +192,7 @@ export const APPOINTMENT_TOOLS: Tool[] = [
         "slot_end",
         "booker_name",
         "booker_email",
+        "timezone",
       ],
     },
     permissionMode: ask,
@@ -176,6 +207,10 @@ export const APPOINTMENT_TOOLS: Tool[] = [
           type: "string",
           description: "UUID of the appointment to cancel",
         },
+        timezone: {
+          ...timezoneProperty,
+          description: `${timezoneProperty.description} Optional; used for local time fields in the response.`,
+        },
       },
       required: ["appointment_id"],
     },
@@ -183,7 +218,8 @@ export const APPOINTMENT_TOOLS: Tool[] = [
   },
   {
     name: "reschedule_appointment",
-    description: "Reschedule an existing confirmed appointment to a new slot.",
+    description:
+      "Reschedule an existing confirmed appointment to a new slot. Use ISO-8601 times with offset from check_available_slots.",
     parameters: {
       type: "object",
       properties: {
@@ -193,16 +229,42 @@ export const APPOINTMENT_TOOLS: Tool[] = [
         },
         new_slot_start: {
           type: "string",
-          description: "New slot start time in ISO 8601",
+          description: "New slot start as ISO 8601 with offset",
         },
         new_slot_end: {
           type: "string",
-          description: "New slot end time in ISO 8601",
+          description: "New slot end as ISO 8601 with offset",
         },
+        timezone: timezoneProperty,
       },
-      required: ["appointment_id", "new_slot_start", "new_slot_end"],
+      required: [
+        "appointment_id",
+        "new_slot_start",
+        "new_slot_end",
+        "timezone",
+      ],
     },
     permissionMode: ask,
+  },
+  {
+    name: "list_user_appointments",
+    description:
+      "List all appointments booked by a user (matched by booker email) for this agent, including confirmed and cancelled ones.",
+    parameters: {
+      type: "object",
+      properties: {
+        booker_email: {
+          type: "string",
+          description: "Email of the person whose appointments to list",
+        },
+        timezone: {
+          ...timezoneProperty,
+          description: `${timezoneProperty.description} Optional; used for local time fields in the response.`,
+        },
+      },
+      required: ["booker_email"],
+    },
+    permissionMode: allow,
   },
 ];
 
