@@ -4,7 +4,10 @@ import {
   upsert,
 } from "@/lib/appointment/repo";
 import { appointmentConnectorConfigSchema } from "@/lib/appointment/tools";
-import { requireConnectorSetupAuth } from "@/lib/auth/require-connector-setup-auth";
+import {
+  requireConnectorOwner,
+  requireConnectorSetupAuth,
+} from "@/lib/auth/require-connector-setup-auth";
 
 type RouteContext = {
   params: Promise<{ agentId: string }>;
@@ -15,6 +18,11 @@ export async function GET(request: Request, context: RouteContext) {
   const auth = await requireConnectorSetupAuth(request, agentId);
   if (!auth.ok) {
     return auth.response;
+  }
+
+  const ownership = await requireConnectorOwner(agentId, auth.userId);
+  if (!ownership.ok) {
+    return ownership.response;
   }
 
   const connector = await getConnectorWithEntities(agentId);
@@ -53,6 +61,11 @@ export async function POST(request: Request, context: RouteContext) {
     return auth.response;
   }
 
+  const ownership = await requireConnectorOwner(agentId, auth.userId);
+  if (!ownership.ok) {
+    return ownership.response;
+  }
+
   let json: unknown;
   try {
     json = await request.json();
@@ -75,6 +88,7 @@ export async function POST(request: Request, context: RouteContext) {
   const body = bodyParse.data;
   const connector = await upsert({
     agentId,
+    userId: auth.userId,
     entityLabel: body.entityLabel,
     timezone: body.timezone,
     slotDurationMinutes: body.slotDurationMinutes,

@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
-import { createEntity, getByAgentId, listEntities } from "@/lib/appointment/repo";
+import { createEntity, listEntities } from "@/lib/appointment/repo";
 import { appointmentEntitySchema } from "@/lib/appointment/tools";
-import { requireConnectorSetupAuth } from "@/lib/auth/require-connector-setup-auth";
+import {
+  requireConnectorOwner,
+  requireConnectorSetupAuth,
+} from "@/lib/auth/require-connector-setup-auth";
 
 type RouteContext = {
   params: Promise<{ agentId: string }>;
@@ -14,18 +17,21 @@ export async function GET(request: Request, context: RouteContext) {
     return auth.response;
   }
 
-  const connector = await getByAgentId(agentId);
-  if (!connector) {
+  const ownership = await requireConnectorOwner(agentId, auth.userId);
+  if (!ownership.ok) {
+    return ownership.response;
+  }
+  if (!ownership.connector) {
     return NextResponse.json(
       { ok: false, error: "Appointment connector is not configured" },
       { status: 400 },
     );
   }
 
-  const entities = await listEntities(connector.id);
+  const entities = await listEntities(ownership.connector.id);
   return NextResponse.json({
     ok: true,
-    entityLabel: connector.entityLabel,
+    entityLabel: ownership.connector.entityLabel,
     entities,
   });
 }
@@ -35,6 +41,17 @@ export async function POST(request: Request, context: RouteContext) {
   const auth = await requireConnectorSetupAuth(request, agentId);
   if (!auth.ok) {
     return auth.response;
+  }
+
+  const ownership = await requireConnectorOwner(agentId, auth.userId);
+  if (!ownership.ok) {
+    return ownership.response;
+  }
+  if (!ownership.connector) {
+    return NextResponse.json(
+      { ok: false, error: "Save connector settings before adding entities" },
+      { status: 400 },
+    );
   }
 
   let json: unknown;
@@ -56,17 +73,9 @@ export async function POST(request: Request, context: RouteContext) {
     );
   }
 
-  const connector = await getByAgentId(agentId);
-  if (!connector) {
-    return NextResponse.json(
-      { ok: false, error: "Save connector settings before adding entities" },
-      { status: 400 },
-    );
-  }
-
   try {
     const entity = await createEntity({
-      connectorId: connector.id,
+      connectorId: ownership.connector.id,
       name: bodyParse.data.name,
       description: bodyParse.data.description,
     });

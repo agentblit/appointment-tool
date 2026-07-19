@@ -17,6 +17,7 @@ export const appointmentConnectors = appointmentSchema.table(
   {
     id: uuid("id").defaultRandom().primaryKey(),
     agentId: varchar("agent_id", { length: 10 }).notNull().unique(),
+    userId: varchar("user_id", { length: 255 }).notNull(),
     entityLabel: varchar("entity_label", { length: 100 }).notNull(),
     timezone: varchar("timezone", { length: 64 }).notNull(),
     slotDurationMinutes: integer("slot_duration_minutes").notNull(),
@@ -30,7 +31,10 @@ export const appointmentConnectors = appointmentSchema.table(
       .notNull()
       .defaultNow(),
   },
-  (t) => [index("appointment_connectors_agent_id_idx").on(t.agentId)],
+  (t) => [
+    index("appointment_connectors_agent_id_idx").on(t.agentId),
+    index("appointment_connectors_user_id_idx").on(t.userId),
+  ],
 );
 
 export const appointmentEntities = appointmentSchema.table(

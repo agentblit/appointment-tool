@@ -5,7 +5,10 @@ import {
   updateEntity,
 } from "@/lib/appointment/repo";
 import { appointmentEntitySchema } from "@/lib/appointment/tools";
-import { requireConnectorSetupAuth } from "@/lib/auth/require-connector-setup-auth";
+import {
+  requireConnectorOwner,
+  requireConnectorSetupAuth,
+} from "@/lib/auth/require-connector-setup-auth";
 
 type RouteContext = {
   params: Promise<{ agentId: string; entityId: string }>;
@@ -16,6 +19,11 @@ export async function PUT(request: Request, context: RouteContext) {
   const auth = await requireConnectorSetupAuth(request, agentId);
   if (!auth.ok) {
     return auth.response;
+  }
+
+  const ownership = await requireConnectorOwner(agentId, auth.userId);
+  if (!ownership.ok) {
+    return ownership.response;
   }
 
   let json: unknown;
@@ -67,6 +75,11 @@ export async function DELETE(request: Request, context: RouteContext) {
   const auth = await requireConnectorSetupAuth(request, agentId);
   if (!auth.ok) {
     return auth.response;
+  }
+
+  const ownership = await requireConnectorOwner(agentId, auth.userId);
+  if (!ownership.ok) {
+    return ownership.response;
   }
 
   const owned = await getEntityForAgent({ agentId, entityId });

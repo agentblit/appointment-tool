@@ -1,4 +1,16 @@
-import { and, asc, eq, gte, gt, inArray, isNull, lte, ne, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gte,
+  gt,
+  inArray,
+  isNull,
+  lte,
+  ne,
+  sql,
+} from "drizzle-orm";
 import { APPOINTMENT_ANONYMOUS_USER_ID } from "@/lib/appointment/constants";
 import {
   appointmentAppointments,
@@ -29,8 +41,17 @@ export async function getByAgentId(agentId: string) {
   return rows[0] ?? null;
 }
 
+export async function listConnectorsByUserId(userId: string) {
+  return db
+    .select()
+    .from(appointmentConnectors)
+    .where(eq(appointmentConnectors.userId, userId))
+    .orderBy(asc(appointmentConnectors.entityLabel), asc(appointmentConnectors.agentId));
+}
+
 export async function upsert(options: {
   agentId: string;
+  userId: string;
   entityLabel: string;
   timezone: string;
   slotDurationMinutes: number;
@@ -40,6 +61,7 @@ export async function upsert(options: {
     .insert(appointmentConnectors)
     .values({
       agentId: options.agentId,
+      userId: options.userId,
       entityLabel: options.entityLabel.trim(),
       timezone: options.timezone,
       slotDurationMinutes: options.slotDurationMinutes,
@@ -209,6 +231,19 @@ export async function listAppointmentsForEntityInRange(options: {
       ),
     )
     .orderBy(asc(appointmentAppointments.startTime));
+}
+
+export async function listAppointmentsForEntity(
+  entityId: string,
+  options?: { limit?: number },
+) {
+  const limit = options?.limit ?? 100;
+  return db
+    .select()
+    .from(appointmentAppointments)
+    .where(eq(appointmentAppointments.entityId, entityId))
+    .orderBy(desc(appointmentAppointments.startTime))
+    .limit(limit);
 }
 
 export async function getAppointmentById(appointmentId: string) {

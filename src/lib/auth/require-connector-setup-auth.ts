@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { getByAgentId } from "@/lib/appointment/repo";
 import { APPOINTMENT_CONNECTOR_KEY } from "@/lib/appointment/tools";
 import {
   requireSetupContext,
@@ -67,4 +68,28 @@ export async function requireConnectorSetupAuth(
   }
 
   return { ok: true, claims, userId };
+}
+
+/** When a connector already exists, only its owner may manage it. */
+export async function requireConnectorOwner(
+  agentId: string,
+  userId: string,
+): Promise<
+  | {
+      ok: true;
+      connector: Awaited<ReturnType<typeof getByAgentId>>;
+    }
+  | { ok: false; response: NextResponse }
+> {
+  const connector = await getByAgentId(agentId);
+  if (connector && connector.userId !== userId) {
+    return {
+      ok: false,
+      response: NextResponse.json(
+        { ok: false, error: "Forbidden" },
+        { status: 403 },
+      ),
+    };
+  }
+  return { ok: true, connector };
 }
