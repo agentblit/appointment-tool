@@ -30,6 +30,7 @@ export async function GET(request: Request, context: RouteContext) {
       entityLabel: connector.entityLabel,
       timezone: connector.timezone,
       slotDurationMinutes: connector.slotDurationMinutes,
+      reminderWindowMinutes: connector.reminderWindowMinutes,
       entities: connector.entities.map((entity) => ({
         id: entity.id,
         name: entity.name,
@@ -79,6 +80,7 @@ export async function POST(request: Request, context: RouteContext) {
     entityLabel: body.entityLabel,
     timezone: body.timezone,
     slotDurationMinutes: body.slotDurationMinutes,
+    reminderWindowMinutes: body.reminderWindowMinutes,
   });
 
   // finalize:true only persists config; agentblit reconnects via status.
@@ -90,6 +92,7 @@ export async function POST(request: Request, context: RouteContext) {
       entityLabel: connector.entityLabel,
       timezone: connector.timezone,
       slotDurationMinutes: connector.slotDurationMinutes,
+      reminderWindowMinutes: connector.reminderWindowMinutes,
     },
     finalize: Boolean(body.finalize),
   });

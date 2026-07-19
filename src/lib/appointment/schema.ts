@@ -21,6 +21,9 @@ export const appointmentConnectors = appointmentSchema.table(
     entityLabel: varchar("entity_label", { length: 100 }).notNull(),
     timezone: varchar("timezone", { length: 64 }).notNull(),
     slotDurationMinutes: integer("slot_duration_minutes").notNull(),
+    reminderWindowMinutes: integer("reminder_window_minutes")
+      .notNull()
+      .default(10),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -89,6 +92,7 @@ export const appointmentAppointments = appointmentSchema.table(
     startTime: timestamp("start_time", { withTimezone: true }).notNull(),
     endTime: timestamp("end_time", { withTimezone: true }).notNull(),
     status: varchar("status", { length: 20 }).notNull().default("confirmed"),
+    reminderSentAt: timestamp("reminder_sent_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -99,6 +103,11 @@ export const appointmentAppointments = appointmentSchema.table(
   (t) => [
     index("appointment_appointments_entity_start_idx").on(
       t.entityId,
+      t.startTime,
+    ),
+    index("appointment_appointments_reminder_pending_idx").on(
+      t.status,
+      t.reminderSentAt,
       t.startTime,
     ),
   ],

@@ -8,6 +8,13 @@
       "when": 1783977577689,
       "tag": "0000_bored_katie_power",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1784068963882,
+      "tag": "0001_magenta_guardsmen",
+      "breakpoints": true
     }
   ]
 }
