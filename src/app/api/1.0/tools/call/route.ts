@@ -18,9 +18,8 @@ const bodySchema = z.object({
 
 export async function POST(request: Request) {
   let agentId: string;
-  let workspaceId: string;
   try {
-    ({ agentId, workspaceId } = requireAgentHeaders(request));
+    ({ agentId } = requireAgentHeaders(request));
   } catch (error) {
     return NextResponse.json(
       {
@@ -74,7 +73,6 @@ export async function POST(request: Request) {
       try {
         const result = await executeAppointmentTool({
           agentId,
-          workspaceId,
           toolName,
           args,
         });

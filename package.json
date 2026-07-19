@@ -3,14 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --port 3080",
+    "dev": "pnpm db:migrate && next dev --port 3080",
     "build": "next build",
     "start": "next start --port 3080",
     "lint": "eslint",
-    "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate"
+    "db:migrate": "drizzle-kit generate && drizzle-kit migrate && node scripts/migrate-auth.mjs",
+    "db:clean": "node scripts/clean-db.mjs"
   },
   "dependencies": {
+    "better-auth": "^1.6.23",
     "dotenv": "^17.4.2",
     "drizzle-orm": "^0.45.2",
     "next": "16.2.10",

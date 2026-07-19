@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getForWorkspaceAgent } from "@/lib/appointment/repo";
+import { getByAgentId } from "@/lib/appointment/repo";
 import { requireAgentHeaders } from "@/lib/auth/http-connector-auth";
 
 function configurationUrl(request: Request): string {
@@ -13,9 +13,8 @@ function configurationUrl(request: Request): string {
 
 export async function GET(request: Request) {
   let agentId: string;
-  let workspaceId: string;
   try {
-    ({ agentId, workspaceId } = requireAgentHeaders(request));
+    ({ agentId } = requireAgentHeaders(request));
   } catch (error) {
     return NextResponse.json(
       {
@@ -26,7 +25,7 @@ export async function GET(request: Request) {
     );
   }
 
-  const connector = await getForWorkspaceAgent({ agentId, workspaceId });
+  const connector = await getByAgentId(agentId);
   return NextResponse.json({
     status: connector ? "configured" : "setup_required",
     configuration_url: configurationUrl(request),

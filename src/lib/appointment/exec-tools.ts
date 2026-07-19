@@ -1,9 +1,9 @@
 import {
   cancelAppointmentRecord,
   createAppointmentRecord,
-  getAppointmentForWorkspace,
+  getAppointmentForAgent,
   getByAgentId,
-  getEntityForWorkspace,
+  getEntityForAgent,
   hasOverlappingConfirmedAppointment,
   listAppointmentsForBookerInConnector,
   listAppointmentsForEntityInRange,
@@ -63,23 +63,22 @@ async function assertConfiguredConnector(agentId: string) {
 
 export async function executeAppointmentTool(options: {
   agentId: string;
-  workspaceId: string;
   toolName: string;
   args: unknown;
 }): Promise<AppointmentToolCallResult> {
-  const { agentId, workspaceId, toolName, args } = options;
+  const { agentId, toolName, args } = options;
 
   switch (toolName) {
     case "list_entities":
       return listEntitiesTool(agentId);
     case "check_available_slots":
-      return checkAvailableSlotsTool({ agentId, workspaceId, args });
+      return checkAvailableSlotsTool({ agentId, args });
     case "book_appointment":
-      return bookAppointmentTool({ agentId, workspaceId, args });
+      return bookAppointmentTool({ agentId, args });
     case "cancel_appointment":
-      return cancelAppointmentTool({ agentId, workspaceId, args });
+      return cancelAppointmentTool({ agentId, args });
     case "reschedule_appointment":
-      return rescheduleAppointmentTool({ agentId, workspaceId, args });
+      return rescheduleAppointmentTool({ agentId, args });
     case "list_user_appointments":
       return listUserAppointmentsTool({ agentId, args });
     default:
@@ -108,7 +107,6 @@ async function listEntitiesTool(
 
 async function checkAvailableSlotsTool(options: {
   agentId: string;
-  workspaceId: string;
   args: unknown;
 }): Promise<AppointmentToolCallResult> {
   const parsed = checkAvailableSlotsArgsSchema.safeParse(options.args ?? {});
@@ -118,8 +116,8 @@ async function checkAvailableSlotsTool(options: {
   }
 
   const connector = await assertConfiguredConnector(options.agentId);
-  const entity = await getEntityForWorkspace({
-    workspaceId: options.workspaceId,
+  const entity = await getEntityForAgent({
+    agentId: options.agentId,
     entityId: parsed.data.entity_id,
   });
   if (!entity || entity.connector.id !== connector.id) {
@@ -187,7 +185,6 @@ async function checkAvailableSlotsTool(options: {
 
 async function bookAppointmentTool(options: {
   agentId: string;
-  workspaceId: string;
   args: unknown;
 }): Promise<AppointmentToolCallResult> {
   const parsed = bookAppointmentArgsSchema.safeParse(options.args ?? {});
@@ -197,8 +194,8 @@ async function bookAppointmentTool(options: {
   }
 
   const connector = await assertConfiguredConnector(options.agentId);
-  const entity = await getEntityForWorkspace({
-    workspaceId: options.workspaceId,
+  const entity = await getEntityForAgent({
+    agentId: options.agentId,
     entityId: parsed.data.entity_id,
   });
   if (!entity || entity.connector.id !== connector.id) {
@@ -277,7 +274,6 @@ async function bookAppointmentTool(options: {
 
 async function cancelAppointmentTool(options: {
   agentId: string;
-  workspaceId: string;
   args: unknown;
 }): Promise<AppointmentToolCallResult> {
   const parsed = cancelAppointmentArgsSchema.safeParse(options.args ?? {});
@@ -286,11 +282,11 @@ async function cancelAppointmentTool(options: {
     throw new Error(issue?.message ?? "Invalid cancel_appointment arguments");
   }
 
-  const appointment = await getAppointmentForWorkspace({
-    workspaceId: options.workspaceId,
+  const appointment = await getAppointmentForAgent({
+    agentId: options.agentId,
     appointmentId: parsed.data.appointment_id,
   });
-  if (!appointment || appointment.connector.agentId !== options.agentId) {
+  if (!appointment) {
     throw new Error("Appointment not found for this agent");
   }
   if (appointment.appointment.status === "cancelled") {
@@ -326,7 +322,6 @@ async function cancelAppointmentTool(options: {
 
 async function rescheduleAppointmentTool(options: {
   agentId: string;
-  workspaceId: string;
   args: unknown;
 }): Promise<AppointmentToolCallResult> {
   const parsed = rescheduleAppointmentArgsSchema.safeParse(options.args ?? {});
@@ -337,11 +332,11 @@ async function rescheduleAppointmentTool(options: {
     );
   }
 
-  const appointment = await getAppointmentForWorkspace({
-    workspaceId: options.workspaceId,
+  const appointment = await getAppointmentForAgent({
+    agentId: options.agentId,
     appointmentId: parsed.data.appointment_id,
   });
-  if (!appointment || appointment.connector.agentId !== options.agentId) {
+  if (!appointment) {
     throw new Error("Appointment not found for this agent");
   }
   if (appointment.appointment.status !== "confirmed") {

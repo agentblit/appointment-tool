@@ -18,7 +18,7 @@ export async function GET(request: Request, context: RouteContext) {
   }
 
   const connector = await getConnectorWithEntities(agentId);
-  if (!connector || connector.workspaceId !== auth.claims.workspaceId) {
+  if (!connector) {
     return NextResponse.json({ ok: true, connector: null });
   }
 
@@ -26,7 +26,6 @@ export async function GET(request: Request, context: RouteContext) {
     ok: true,
     connector: {
       agentId: connector.agentId,
-      workspaceId: connector.workspaceId,
       entityLabel: connector.entityLabel,
       timezone: connector.timezone,
       slotDurationMinutes: connector.slotDurationMinutes,
@@ -76,7 +75,6 @@ export async function POST(request: Request, context: RouteContext) {
   const body = bodyParse.data;
   const connector = await upsert({
     agentId,
-    workspaceId: auth.claims.workspaceId,
     entityLabel: body.entityLabel,
     timezone: body.timezone,
     slotDurationMinutes: body.slotDurationMinutes,
@@ -88,7 +86,6 @@ export async function POST(request: Request, context: RouteContext) {
     ok: true,
     connector: {
       agentId: connector.agentId,
-      workspaceId: connector.workspaceId,
       entityLabel: connector.entityLabel,
       timezone: connector.timezone,
       slotDurationMinutes: connector.slotDurationMinutes,

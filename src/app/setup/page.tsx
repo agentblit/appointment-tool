@@ -9,13 +9,14 @@ import {
   useMemo,
   useState,
 } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   APPOINTMENT_DAY_LABELS,
   APPOINTMENT_REMINDER_WINDOW_OPTIONS,
   APPOINTMENT_SLOT_DURATION_OPTIONS,
   APPOINTMENT_TIMEZONES,
 } from "@/lib/appointment/constants";
+import { authClient } from "@/lib/auth-client";
 
 type Step = "config" | "entities" | "availability";
 
@@ -40,7 +41,6 @@ type ConnectorConfig = {
 };
 
 type SetupClaims = {
-  workspaceId: string;
   agentId: string;
   connectorKey: string;
 };
@@ -118,7 +118,6 @@ function availabilityMapFromRules(
 function setupQuery(claims: SetupClaims) {
   return new URLSearchParams({
     agentId: claims.agentId,
-    workspaceId: claims.workspaceId,
     connectorKey: claims.connectorKey,
   }).toString();
 }
@@ -209,21 +208,31 @@ function SetupShell({
 }
 
 function AppointmentSetupWizard() {
+  const router = useRouter();
   const searchParams = useSearchParams();
   const agentIdParam = searchParams.get("agentId")?.trim() ?? "";
-  const workspaceIdParam = searchParams.get("workspaceId")?.trim() ?? "";
   const connectorKeyParam = searchParams.get("connectorKey")?.trim() ?? "";
 
   const claims = useMemo((): SetupClaims | null => {
-    if (!agentIdParam || !workspaceIdParam || !connectorKeyParam) {
+    if (!agentIdParam || !connectorKeyParam) {
       return null;
     }
     return {
       agentId: agentIdParam,
-      workspaceId: workspaceIdParam,
       connectorKey: connectorKeyParam,
     };
-  }, [agentIdParam, workspaceIdParam, connectorKeyParam]);
+  }, [agentIdParam, connectorKeyParam]);
+
+  const setupReturnPath = useMemo(() => {
+    const params = new URLSearchParams();
+    if (agentIdParam) params.set("agentId", agentIdParam);
+    if (connectorKeyParam) params.set("connectorKey", connectorKeyParam);
+    const query = params.toString();
+    return query ? `/setup?${query}` : "/setup";
+  }, [agentIdParam, connectorKeyParam]);
+
+  const { data: session, isPending: sessionPending } = authClient.useSession();
+  const isAuthenticated = Boolean(session?.user);
 
   const [step, setStep] = useState<Step>("config");
   const [loading, setLoading] = useState(true);
@@ -247,7 +256,7 @@ function AppointmentSetupWizard() {
   const agentId = claims?.agentId ?? "";
 
   const loadConnector = useCallback(async () => {
-    if (!agentIdParam || !workspaceIdParam || !connectorKeyParam) {
+    if (!agentIdParam || !connectorKeyParam) {
       setLoading(false);
       setError("Missing setup params. Return to Agentblit and try again.");
       return;
@@ -255,7 +264,6 @@ function AppointmentSetupWizard() {
 
     const queryClaims: SetupClaims = {
       agentId: agentIdParam,
-      workspaceId: workspaceIdParam,
       connectorKey: connectorKeyParam,
     };
 
@@ -276,6 +284,7 @@ function AppointmentSetupWizard() {
     try {
       const res = await fetch(
         `/api/connectors/${encodeURIComponent(queryClaims.agentId)}?${setupQuery(queryClaims)}`,
+        { credentials: "include" },
       );
       const data = (await res.json()) as {
         ok?: boolean;
@@ -334,13 +343,33 @@ function AppointmentSetupWizard() {
     } finally {
       setLoading(false);
     }
-  }, [agentIdParam, workspaceIdParam, connectorKeyParam]);
+  }, [agentIdParam, connectorKeyParam]);
 
   useEffect(() => {
-    void loadConnector();
-  }, [loadConnector]);
+    if (sessionPending) return;
+    if (!isAuthenticated) {
+      router.replace(
+        `/login?next=${encodeURIComponent(setupReturnPath)}`,
+      );
+      return;
+    }
+    queueMicrotask(() => {
+      void loadConnector();
+    });
+  }, [
+    sessionPending,
+    isAuthenticated,
+    loadConnector,
+    router,
+    setupReturnPath,
+  ]);
 
   const isBusy = pendingAction !== null;
+
+  async function switchAccount() {
+    await authClient.signOut();
+    router.replace(`/login?next=${encodeURIComponent(setupReturnPath)}`);
+  }
 
   async function saveConfig(finalize = false) {
     if (!claims || !agentId) {
@@ -355,6 +384,7 @@ function AppointmentSetupWizard() {
         `/api/connectors/${encodeURIComponent(agentId)}?${setupQuery(claims)}`,
         {
           method: "POST",
+          credentials: "include",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             entityLabel: config.entityLabel,
@@ -412,6 +442,7 @@ function AppointmentSetupWizard() {
         `/api/connectors/${encodeURIComponent(agentId)}/entities?${setupQuery(claims)}`,
         {
           method: "POST",
+          credentials: "include",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             name: newEntityName.trim(),
@@ -459,7 +490,7 @@ function AppointmentSetupWizard() {
     try {
       const res = await fetch(
         `/api/connectors/${encodeURIComponent(agentId)}/entities/${encodeURIComponent(entityId)}?${setupQuery(claims)}`,
-        { method: "DELETE" },
+        { method: "DELETE", credentials: "include" },
       );
       const data = (await res.json()) as { ok?: boolean; error?: string };
       if (!res.ok || !data.ok) {
@@ -520,6 +551,7 @@ function AppointmentSetupWizard() {
         `/api/connectors/${encodeURIComponent(agentId)}/entities/${encodeURIComponent(entityId)}/availability?${setupQuery(claims)}`,
         {
           method: "PUT",
+          credentials: "include",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ rules }),
         },
@@ -577,18 +609,36 @@ function AppointmentSetupWizard() {
     setStep(next);
   }
 
+  const shellLoading = sessionPending || !isAuthenticated || loading;
+
   return (
     <SetupShell
       step={step}
-      onStepChange={loading ? undefined : goToStep}
+      onStepChange={shellLoading ? undefined : goToStep}
       error={error}
-      loading={loading}
+      loading={shellLoading}
     >
-      {step === "config" ? (
+      {isAuthenticated && step === "config" ? (
         <form
           className="flex flex-col space-y-6"
           onSubmit={(event) => void handleConfigNext(event)}
         >
+          <div className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-zinc-200 px-3 py-2.5 dark:border-zinc-800">
+            <p className="text-sm text-zinc-600 dark:text-zinc-300">
+              Signed in as{" "}
+              <span className="font-medium text-zinc-900 dark:text-zinc-50">
+                {session?.user?.email}
+              </span>
+            </p>
+            <button
+              type="button"
+              className={buttonOutlineClassName}
+              onClick={() => void switchAccount()}
+            >
+              Switch
+            </button>
+          </div>
+
           <div>
             <label className={labelClassName} htmlFor="entity-label">
               Entity name
@@ -700,7 +750,7 @@ function AppointmentSetupWizard() {
         </form>
       ) : null}
 
-      {step === "entities" ? (
+      {isAuthenticated && step === "entities" ? (
         <div className="flex flex-col space-y-6">
           <form
             className="space-y-1.5"
@@ -801,7 +851,7 @@ function AppointmentSetupWizard() {
         </div>
       ) : null}
 
-      {step === "availability" ? (
+      {isAuthenticated && step === "availability" ? (
         <form
           className="flex flex-col space-y-6"
           onSubmit={(event) => void handleFinalize(event)}

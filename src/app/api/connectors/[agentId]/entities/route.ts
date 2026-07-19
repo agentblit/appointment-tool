@@ -1,9 +1,5 @@
 import { NextResponse } from "next/server";
-import {
-  createEntity,
-  getForWorkspaceAgent,
-  listEntities,
-} from "@/lib/appointment/repo";
+import { createEntity, getByAgentId, listEntities } from "@/lib/appointment/repo";
 import { appointmentEntitySchema } from "@/lib/appointment/tools";
 import { requireConnectorSetupAuth } from "@/lib/auth/require-connector-setup-auth";
 
@@ -18,10 +14,7 @@ export async function GET(request: Request, context: RouteContext) {
     return auth.response;
   }
 
-  const connector = await getForWorkspaceAgent({
-    workspaceId: auth.claims.workspaceId,
-    agentId,
-  });
+  const connector = await getByAgentId(agentId);
   if (!connector) {
     return NextResponse.json(
       { ok: false, error: "Appointment connector is not configured" },
@@ -63,10 +56,7 @@ export async function POST(request: Request, context: RouteContext) {
     );
   }
 
-  const connector = await getForWorkspaceAgent({
-    workspaceId: auth.claims.workspaceId,
-    agentId,
-  });
+  const connector = await getByAgentId(agentId);
   if (!connector) {
     return NextResponse.json(
       { ok: false, error: "Save connector settings before adding entities" },

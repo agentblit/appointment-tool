@@ -29,26 +29,8 @@ export async function getByAgentId(agentId: string) {
   return rows[0] ?? null;
 }
 
-export async function getForWorkspaceAgent(options: {
-  workspaceId: string;
-  agentId: string;
-}) {
-  const rows = await db
-    .select()
-    .from(appointmentConnectors)
-    .where(
-      and(
-        eq(appointmentConnectors.agentId, options.agentId),
-        eq(appointmentConnectors.workspaceId, options.workspaceId),
-      ),
-    )
-    .limit(1);
-  return rows[0] ?? null;
-}
-
 export async function upsert(options: {
   agentId: string;
-  workspaceId: string;
   entityLabel: string;
   timezone: string;
   slotDurationMinutes: number;
@@ -58,7 +40,6 @@ export async function upsert(options: {
     .insert(appointmentConnectors)
     .values({
       agentId: options.agentId,
-      workspaceId: options.workspaceId,
       entityLabel: options.entityLabel.trim(),
       timezone: options.timezone,
       slotDurationMinutes: options.slotDurationMinutes,
@@ -68,7 +49,6 @@ export async function upsert(options: {
     .onConflictDoUpdate({
       target: [appointmentConnectors.agentId],
       set: {
-        workspaceId: options.workspaceId,
         entityLabel: options.entityLabel.trim(),
         timezone: options.timezone,
         slotDurationMinutes: options.slotDurationMinutes,
@@ -105,8 +85,8 @@ export async function getEntityById(entityId: string) {
   return rows[0] ?? null;
 }
 
-export async function getEntityForWorkspace(options: {
-  workspaceId: string;
+export async function getEntityForAgent(options: {
+  agentId: string;
   entityId: string;
 }) {
   const rows = await db
@@ -122,7 +102,7 @@ export async function getEntityForWorkspace(options: {
     .where(
       and(
         eq(appointmentEntities.id, options.entityId),
-        eq(appointmentConnectors.workspaceId, options.workspaceId),
+        eq(appointmentConnectors.agentId, options.agentId),
       ),
     )
     .limit(1);
@@ -266,8 +246,8 @@ export async function listAppointmentsForBookerInConnector(options: {
     .orderBy(asc(appointmentAppointments.startTime));
 }
 
-export async function getAppointmentForWorkspace(options: {
-  workspaceId: string;
+export async function getAppointmentForAgent(options: {
+  agentId: string;
   appointmentId: string;
 }) {
   const rows = await db
@@ -288,7 +268,7 @@ export async function getAppointmentForWorkspace(options: {
     .where(
       and(
         eq(appointmentAppointments.id, options.appointmentId),
-        eq(appointmentConnectors.workspaceId, options.workspaceId),
+        eq(appointmentConnectors.agentId, options.agentId),
       ),
     )
     .limit(1);

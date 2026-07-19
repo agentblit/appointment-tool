@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
 import { validateAvailabilityRules } from "@/lib/appointment/appointment-utils";
 import {
-  getEntityForWorkspace,
-  getForWorkspaceAgent,
+  getEntityForAgent,
   listAvailabilityRulesForEntity,
   replaceAvailabilityRulesForEntity,
 } from "@/lib/appointment/repo";
@@ -13,29 +12,6 @@ type RouteContext = {
   params: Promise<{ agentId: string; entityId: string }>;
 };
 
-async function assertEntityOwnedByAgent(options: {
-  workspaceId: string;
-  agentId: string;
-  entityId: string;
-}) {
-  const connector = await getForWorkspaceAgent({
-    workspaceId: options.workspaceId,
-    agentId: options.agentId,
-  });
-  if (!connector) {
-    return null;
-  }
-
-  const row = await getEntityForWorkspace({
-    workspaceId: options.workspaceId,
-    entityId: options.entityId,
-  });
-  if (!row || row.connector.id !== connector.id) {
-    return null;
-  }
-  return row;
-}
-
 export async function GET(request: Request, context: RouteContext) {
   const { agentId, entityId } = await context.params;
   const auth = await requireConnectorSetupAuth(request, agentId);
@@ -43,11 +19,7 @@ export async function GET(request: Request, context: RouteContext) {
     return auth.response;
   }
 
-  const owned = await assertEntityOwnedByAgent({
-    workspaceId: auth.claims.workspaceId,
-    agentId,
-    entityId,
-  });
+  const owned = await getEntityForAgent({ agentId, entityId });
   if (!owned) {
     return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
   }
@@ -82,11 +54,7 @@ export async function PUT(request: Request, context: RouteContext) {
     );
   }
 
-  const owned = await assertEntityOwnedByAgent({
-    workspaceId: auth.claims.workspaceId,
-    agentId,
-    entityId,
-  });
+  const owned = await getEntityForAgent({ agentId, entityId });
   if (!owned) {
     return NextResponse.json({ ok: false, error: "Not found" }, { status: 404 });
   }

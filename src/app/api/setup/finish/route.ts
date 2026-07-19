@@ -1,8 +1,19 @@
 import { NextResponse } from "next/server";
 import { APPOINTMENT_CONNECTOR_KEY } from "@/lib/appointment/tools";
 import { requireSetupContext } from "@/lib/auth/http-connector-auth";
+import { authErrorResponse } from "@/lib/auth/http";
+import { requireAuth } from "@/lib/auth/requireAuth";
 
 export async function GET(request: Request) {
+  try {
+    await requireAuth(request);
+  } catch (error) {
+    return (
+      authErrorResponse(error) ??
+      NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 })
+    );
+  }
+
   let claims;
   try {
     claims = requireSetupContext(request);
@@ -31,6 +42,6 @@ export async function GET(request: Request) {
     );
   }
 
-  const redirectTo = `${appUrl}/workspace/${encodeURIComponent(claims.workspaceId)}/agent/${encodeURIComponent(claims.agentId)}?connector_setup=${APPOINTMENT_CONNECTOR_KEY}`;
+  const redirectTo = `${appUrl}/api/http-connectors/setup-complete?agentId=${encodeURIComponent(claims.agentId)}&connectorKey=${encodeURIComponent(APPOINTMENT_CONNECTOR_KEY)}`;
   return NextResponse.redirect(redirectTo);
 }

@@ -4,14 +4,31 @@ import {
   requireSetupContext,
   type SetupContext,
 } from "@/lib/auth/http-connector-auth";
+import { authErrorResponse } from "@/lib/auth/http";
+import { requireAuth } from "@/lib/auth/requireAuth";
 
 export async function requireConnectorSetupAuth(
   request: Request,
   agentIdFromPath: string,
 ): Promise<
-  | { ok: true; claims: SetupContext }
+  | { ok: true; claims: SetupContext; userId: string }
   | { ok: false; response: NextResponse }
 > {
+  let userId: string;
+  try {
+    userId = await requireAuth(request);
+  } catch (error) {
+    return {
+      ok: false,
+      response:
+        authErrorResponse(error) ??
+        NextResponse.json(
+          { ok: false, error: "Unauthorized" },
+          { status: 401 },
+        ),
+    };
+  }
+
   let claims: SetupContext;
   try {
     claims = requireSetupContext(request);
@@ -49,5 +66,5 @@ export async function requireConnectorSetupAuth(
     };
   }
 
-  return { ok: true, claims };
+  return { ok: true, claims, userId };
 }

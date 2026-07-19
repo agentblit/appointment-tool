@@ -25,5 +25,6 @@ COPY --from=builder /app/public ./public
 COPY --from=builder /app/drizzle ./drizzle
 COPY --from=builder /app/drizzle.config.ts ./drizzle.config.ts
 COPY --from=builder /app/src/lib/appointment/schema.ts ./src/lib/appointment/schema.ts
+COPY --from=builder /app/scripts ./scripts
 EXPOSE 3080
 CMD ["sh", "-c", "pnpm db:migrate && pnpm start"]
