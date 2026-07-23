@@ -12,17 +12,27 @@ export enum ToolPermissionMode {
   Blocked = "blocked",
 }
 
+export type ToolUiMeta = {
+  resourceUri: string;
+  visibility?: Array<"model" | "app">;
+};
+
 export type Tool = {
   name: string;
   description: string;
   parameters: object;
   permissionMode: ToolPermissionMode;
+  ui?: ToolUiMeta;
 };
 
 const ask = ToolPermissionMode.NeedsApproval;
 const allow = ToolPermissionMode.AlwaysAllow;
 
 export const APPOINTMENT_CONNECTOR_KEY = "appointment";
+
+export const UI_CHECK_SLOTS = "ui://appointment/check-slots";
+export const UI_APPOINTMENTS = "ui://appointment/appointments";
+export const MCP_APP_MIME_TYPE = "text/html;profile=mcp-app";
 
 const isoDateSchema = z
   .string()
@@ -168,6 +178,7 @@ export const APPOINTMENT_TOOLS: Tool[] = [
       required: ["entity_id", "date_from", "date_to", "timezone"],
     },
     permissionMode: allow,
+    ui: { resourceUri: UI_CHECK_SLOTS },
   },
   {
     name: "book_appointment",
@@ -278,10 +289,11 @@ export const APPOINTMENT_TOOLS: Tool[] = [
       required: ["booker_email"],
     },
     permissionMode: allow,
+    ui: { resourceUri: UI_APPOINTMENTS },
   },
 ];
 
-/** OpenAI tools/list shape including `permission_mode`. */
+/** OpenAI tools/list shape including `permission_mode` and MCP Apps `_meta.ui`. */
 export function toOpenAiToolsList() {
   return {
     tools: APPOINTMENT_TOOLS.map((tool) => ({
@@ -292,6 +304,18 @@ export function toOpenAiToolsList() {
         parameters: tool.parameters,
       },
       permission_mode: tool.permissionMode,
+      ...(tool.ui
+        ? {
+            _meta: {
+              ui: {
+                resourceUri: tool.ui.resourceUri,
+                ...(tool.ui.visibility
+                  ? { visibility: tool.ui.visibility }
+                  : {}),
+              },
+            },
+          }
+        : {}),
     })),
   };
 }

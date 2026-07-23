@@ -77,6 +77,10 @@ export async function upsert(options: {
         reminderWindowMinutes: options.reminderWindowMinutes,
         updatedAt: new Date(),
       },
+      // Only update when the requesting user actually owns the existing row;
+      // a race between two different users hitting the same agentId should
+      // be a silent no-op for the losing user rather than a data overwrite.
+      where: eq(appointmentConnectors.userId, options.userId),
     })
     .returning();
   return inserted[0];
