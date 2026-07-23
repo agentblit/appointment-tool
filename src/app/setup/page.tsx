@@ -33,6 +33,7 @@ type EntityRow = {
   id: string;
   name: string;
   description?: string | null;
+  tags?: string[] | null;
   availabilityRules: AvailabilityRule[];
 };
 
@@ -414,6 +415,7 @@ function AppointmentSetupWizard() {
   async function handleAddEntity(input: {
     name: string;
     description: string;
+    tags: string[];
   }) {
     if (!claims) {
       setError("Missing setup params. Return to Agentblit and try again.");
@@ -432,6 +434,7 @@ function AppointmentSetupWizard() {
           body: JSON.stringify({
             name: input.name,
             description: input.description || undefined,
+            tags: input.tags,
           }),
         },
       );
@@ -468,6 +471,7 @@ function AppointmentSetupWizard() {
     entityId: string;
     name: string;
     description: string;
+    tags: string[];
   }) {
     if (!claims) {
       setError("Missing setup params. Return to Agentblit and try again.");
@@ -486,6 +490,7 @@ function AppointmentSetupWizard() {
           body: JSON.stringify({
             name: input.name,
             description: input.description || undefined,
+            tags: input.tags,
           }),
         },
       );
@@ -506,6 +511,7 @@ function AppointmentSetupWizard() {
                   ...entity,
                   name: data.entity!.name,
                   description: data.entity!.description,
+                  tags: data.entity!.tags ?? [],
                 }
               : entity,
           )

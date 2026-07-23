@@ -35,6 +35,7 @@ type EntityRow = {
   id: string;
   name: string;
   description?: string | null;
+  tags?: string[] | null;
   isActive?: boolean;
   availabilityRules: AvailabilityRule[];
 };
@@ -319,6 +320,7 @@ function DashboardContent() {
   async function handleAddEntity(input: {
     name: string;
     description: string;
+    tags: string[];
   }) {
     if (!agentIdParam) return;
 
@@ -334,6 +336,7 @@ function DashboardContent() {
           body: JSON.stringify({
             name: input.name,
             description: input.description || undefined,
+            tags: input.tags,
           }),
         },
       );
@@ -365,6 +368,7 @@ function DashboardContent() {
     entityId: string;
     name: string;
     description: string;
+    tags: string[];
   }) {
     if (!agentIdParam) return;
 
@@ -380,6 +384,7 @@ function DashboardContent() {
           body: JSON.stringify({
             name: input.name,
             description: input.description || undefined,
+            tags: input.tags,
           }),
         },
       );
@@ -400,6 +405,7 @@ function DashboardContent() {
                   ...entity,
                   name: data.entity!.name,
                   description: data.entity!.description,
+                  tags: data.entity!.tags ?? [],
                 }
               : entity,
           )

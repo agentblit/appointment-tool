@@ -46,6 +46,7 @@ export const appointmentEntities = appointmentSchema.table(
       .references(() => appointmentConnectors.id, { onDelete: "cascade" }),
     name: varchar("name", { length: 255 }).notNull(),
     description: text("description"),
+    tags: text("tags").array().notNull().default([]),
     isActive: boolean("is_active").notNull().default(true),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()

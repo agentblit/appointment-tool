@@ -116,6 +116,11 @@ export const appointmentConnectorConfigSchema = z.object({
 export const appointmentEntitySchema = z.object({
   name: z.string().trim().min(1, "Name is required").max(255),
   description: z.string().trim().max(1000).optional(),
+  tags: z
+    .array(z.string().trim().min(1).max(64))
+    .max(20)
+    .optional()
+    .default([]),
 });
 
 export const appointmentAvailabilityRulesSchema = z.object({
@@ -146,7 +151,7 @@ export const APPOINTMENT_TOOLS: Tool[] = [
   {
     name: "list_entities",
     description:
-      "List all configured bookable entities for this agent, including their IDs and descriptions.",
+      "List all configured bookable entities (providers) for this agent, including IDs, names, descriptions, and tags. ALWAYS call this first when the user asks who/what to see, which provider fits a symptom or need, or wants a recommendation. Suggest matching entities in chat and wait for the user to choose one before calling check_available_slots or book_appointment.",
     parameters: {
       type: "object",
       properties: {},
@@ -156,13 +161,13 @@ export const APPOINTMENT_TOOLS: Tool[] = [
   {
     name: "check_available_slots",
     description:
-      "Check available appointment slots for a configured entity within a date range. Pass the chat user's IANA timezone so date_from/date_to and returned local times match that user.",
+      "Show available appointment times for one specific entity the user already chose. Only call after list_entities (or a clear prior choice) and the user has confirmed which entity to book—do not jump straight here for 'who should I see?' questions. Pass the chat user's IANA timezone so date_from/date_to and returned local times match that user.",
     parameters: {
       type: "object",
       properties: {
         entity_id: {
           type: "string",
-          description: "UUID of the entity to check",
+          description: "UUID of the entity to check (from list_entities)",
         },
         date_from: {
           type: "string",
@@ -183,7 +188,7 @@ export const APPOINTMENT_TOOLS: Tool[] = [
   {
     name: "book_appointment",
     description:
-      "Book an appointment slot for a configured entity using the booker's name and email. Use ISO-8601 times with offset (prefer values returned by check_available_slots). Pass the chat user's timezone for local confirmation times.",
+      "Book an appointment slot for a configured entity using the booker's name and email. Prefer a slot the user picked from check_available_slots. Use ISO-8601 times with offset. Pass the chat user's timezone for local confirmation times.",
     parameters: {
       type: "object",
       properties: {

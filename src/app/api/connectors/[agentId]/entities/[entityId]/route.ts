@@ -55,6 +55,7 @@ export async function PUT(request: Request, context: RouteContext) {
       entityId,
       name: bodyParse.data.name,
       description: bodyParse.data.description,
+      tags: bodyParse.data.tags,
     });
     return NextResponse.json({ ok: true, entity: updated });
   } catch (error) {

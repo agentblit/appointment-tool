@@ -42,6 +42,7 @@ export async function GET(request: Request, context: RouteContext) {
         id: entity.id,
         name: entity.name,
         description: entity.description,
+        tags: entity.tags ?? [],
         isActive: entity.isActive,
         availabilityRules: entity.availabilityRules.map((rule) => ({
           id: rule.id,

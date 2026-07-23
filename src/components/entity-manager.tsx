@@ -1,12 +1,18 @@
 "use client";
 
-import { ChevronRight, Pencil, Trash2 } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import { ChevronRight, Pencil, Trash2, X } from "lucide-react";
+import {
+  useState,
+  type FormEvent,
+  type KeyboardEvent,
+  type MouseEvent,
+} from "react";
 
 export type EntityManagerItem = {
   id: string;
   name: string;
   description?: string | null;
+  tags?: string[] | null;
 };
 
 function pluralize(label: string) {
@@ -21,16 +27,116 @@ type EntityManagerProps = {
   loading?: boolean;
   disabled?: boolean;
   emptyMessage?: string;
-  onAdd: (input: { name: string; description: string }) => void | Promise<void>;
+  onAdd: (input: {
+    name: string;
+    description: string;
+    tags: string[];
+  }) => void | Promise<void>;
   onUpdate: (input: {
     entityId: string;
     name: string;
     description: string;
+    tags: string[];
   }) => void | Promise<void>;
   onDelete: (entityId: string) => void | Promise<void>;
   onSelect?: (entityId: string) => void;
   onValidationError?: (message: string) => void;
 };
+
+function TagsInput({
+  tags,
+  onChange,
+  disabled,
+  placeholder = "Tags (optional)",
+  id,
+}: {
+  tags: string[];
+  onChange: (tags: string[]) => void;
+  disabled?: boolean;
+  placeholder?: string;
+  id?: string;
+}) {
+  const [draft, setDraft] = useState("");
+
+  function addTag(raw: string) {
+    const value = raw.trim();
+    if (!value) return;
+    const exists = tags.some(
+      (tag) => tag.toLowerCase() === value.toLowerCase(),
+    );
+    if (exists) {
+      setDraft("");
+      return;
+    }
+    onChange([...tags, value]);
+    setDraft("");
+  }
+
+  function removeTag(index: number) {
+    onChange(tags.filter((_, i) => i !== index));
+  }
+
+  function handleKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      addTag(draft);
+      return;
+    }
+    if (event.key === "Backspace" && !draft && tags.length > 0) {
+      event.preventDefault();
+      removeTag(tags.length - 1);
+    }
+  }
+
+  function handleRemoveClick(
+    event: MouseEvent<HTMLButtonElement>,
+    index: number,
+  ) {
+    event.preventDefault();
+    event.stopPropagation();
+    removeTag(index);
+  }
+
+  return (
+    <div
+      className={`flex min-h-10 min-w-0 flex-1 flex-wrap items-center gap-1.5 rounded-lg border border-border bg-muted px-2 py-1.5 transition-shadow focus-within:border-ring focus-within:bg-card focus-within:ring-2 focus-within:ring-ring/30 ${
+        disabled ? "opacity-50" : ""
+      }`}
+    >
+      {tags.map((tag, index) => (
+        <span
+          key={`${tag}-${index}`}
+          className="group/tag relative inline-flex max-w-full items-center rounded-md bg-card px-2 py-0.5 text-xs font-medium text-foreground ring-1 ring-border"
+        >
+          <span className="truncate pr-0 transition-[padding] group-hover/tag:pr-4">
+            {tag}
+          </span>
+          <button
+            type="button"
+            className="absolute right-0.5 top-1/2 inline-flex h-4 w-4 -translate-y-1/2 cursor-pointer items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-muted hover:text-foreground group-hover/tag:opacity-100 disabled:cursor-not-allowed"
+            onClick={(event) => handleRemoveClick(event, index)}
+            disabled={disabled}
+            aria-label={`Remove tag ${tag}`}
+            tabIndex={-1}
+          >
+            <X className="h-3 w-3" aria-hidden="true" />
+          </button>
+        </span>
+      ))}
+      <input
+        id={id}
+        className="min-w-28 flex-1 bg-transparent px-1 py-0.5 text-sm text-foreground outline-none placeholder:text-placeholder-foreground disabled:cursor-not-allowed"
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onKeyDown={handleKeyDown}
+        onBlur={() => addTag(draft)}
+        placeholder={tags.length === 0 ? placeholder : "Add tag…"}
+        disabled={disabled}
+        aria-label="Tags"
+      />
+    </div>
+  );
+}
 
 export function EntityManager({
   entityLabel,
@@ -47,9 +153,11 @@ export function EntityManager({
 }: EntityManagerProps) {
   const [newEntityName, setNewEntityName] = useState("");
   const [newEntityDescription, setNewEntityDescription] = useState("");
+  const [newEntityTags, setNewEntityTags] = useState<string[]>([]);
   const [editingEntityId, setEditingEntityId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [editDescription, setEditDescription] = useState("");
+  const [editTags, setEditTags] = useState<string[]>([]);
 
   const isBusy = disabled || pendingAction !== null;
 
@@ -70,9 +178,11 @@ export function EntityManager({
       await onAdd({
         name: newEntityName.trim(),
         description: newEntityDescription.trim(),
+        tags: newEntityTags,
       });
       setNewEntityName("");
       setNewEntityDescription("");
+      setNewEntityTags([]);
     } catch {
       // Parent reports the error.
     }
@@ -82,12 +192,14 @@ export function EntityManager({
     setEditingEntityId(entity.id);
     setEditName(entity.name);
     setEditDescription(entity.description ?? "");
+    setEditTags(entity.tags ?? []);
   }
 
   function cancelEdit() {
     setEditingEntityId(null);
     setEditName("");
     setEditDescription("");
+    setEditTags([]);
   }
 
   async function handleSave(event: FormEvent) {
@@ -102,6 +214,7 @@ export function EntityManager({
         entityId: editingEntityId,
         name: editName.trim(),
         description: editDescription.trim(),
+        tags: editTags,
       });
       cancelEdit();
     } catch {
@@ -115,33 +228,38 @@ export function EntityManager({
         <p className="mb-3 text-sm font-semibold text-foreground">
           Add {entityLabel.toLowerCase()}
         </p>
-        <form
-          className="flex flex-col gap-2 sm:flex-row sm:items-center"
-          onSubmit={(e) => void handleAdd(e)}
-        >
-          <input
-            id="entity-name"
-            className={`${inputCls} sm:w-44 sm:shrink-0`}
-            value={newEntityName}
-            onChange={(event) => setNewEntityName(event.target.value)}
-            placeholder={`${entityLabel} name`}
+        <form className="flex flex-col gap-2" onSubmit={(e) => void handleAdd(e)}>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            <input
+              id="entity-name"
+              className={`${inputCls} sm:w-44 sm:shrink-0`}
+              value={newEntityName}
+              onChange={(event) => setNewEntityName(event.target.value)}
+              placeholder={`${entityLabel} name`}
+              disabled={isBusy}
+            />
+            <input
+              id="entity-description"
+              className={`${inputCls} min-w-0 flex-1`}
+              value={newEntityDescription}
+              onChange={(event) => setNewEntityDescription(event.target.value)}
+              placeholder="Description (optional)"
+              disabled={isBusy}
+            />
+            <button
+              type="submit"
+              className={`${btnPrimaryCls} shrink-0`}
+              disabled={isBusy || !newEntityName.trim()}
+            >
+              {pendingAction === "add-entity" ? "Adding…" : "Add"}
+            </button>
+          </div>
+          <TagsInput
+            id="entity-tags"
+            tags={newEntityTags}
+            onChange={setNewEntityTags}
             disabled={isBusy}
           />
-          <input
-            id="entity-description"
-            className={`${inputCls} min-w-0 flex-1`}
-            value={newEntityDescription}
-            onChange={(event) => setNewEntityDescription(event.target.value)}
-            placeholder="Description (optional)"
-            disabled={isBusy}
-          />
-          <button
-            type="submit"
-            className={`${btnPrimaryCls} shrink-0`}
-            disabled={isBusy}
-          >
-            {pendingAction === "add-entity" ? "Adding…" : "Add"}
-          </button>
         </form>
       </div>
 
@@ -162,6 +280,7 @@ export function EntityManager({
           <ul className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
             {entities.map((entity, index) => {
               const editing = editingEntityId === entity.id;
+              const tags = entity.tags ?? [];
 
               if (editing) {
                 return (
@@ -182,6 +301,11 @@ export function EntityManager({
                         aria-label="Entity name"
                         autoFocus
                       />
+                      <TagsInput
+                        tags={editTags}
+                        onChange={setEditTags}
+                        disabled={isBusy}
+                      />
                       <input
                         className={inputCls}
                         value={editDescription}
@@ -196,7 +320,7 @@ export function EntityManager({
                         <button
                           type="submit"
                           className={btnPrimaryCls}
-                          disabled={isBusy}
+                          disabled={isBusy || !editName.trim()}
                         >
                           {pendingAction === `edit-entity:${entity.id}`
                             ? "Saving…"
@@ -237,6 +361,18 @@ export function EntityManager({
                           {entity.description}
                         </p>
                       ) : null}
+                      {tags.length > 0 ? (
+                        <div className="mt-1.5 flex flex-wrap gap-1">
+                          {tags.map((tag) => (
+                            <span
+                              key={tag}
+                              className="inline-flex rounded-md bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground"
+                            >
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
                     </button>
                   ) : (
                     <div className="min-w-0 flex-1 px-4 py-3.5">
@@ -247,6 +383,18 @@ export function EntityManager({
                         <p className="mt-0.5 truncate text-xs text-muted-foreground">
                           {entity.description}
                         </p>
+                      ) : null}
+                      {tags.length > 0 ? (
+                        <div className="mt-1.5 flex flex-wrap gap-1">
+                          {tags.map((tag) => (
+                            <span
+                              key={tag}
+                              className="inline-flex rounded-md bg-muted px-1.5 py-0.5 text-[11px] font-medium text-muted-foreground"
+                            >
+                              {tag}
+                            </span>
+                          ))}
+                        </div>
                       ) : null}
                     </div>
                   )}

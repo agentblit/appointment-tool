@@ -135,10 +135,26 @@ export async function getEntityForAgent(options: {
   return rows[0] ?? null;
 }
 
+function normalizeTags(tags?: string[] | null) {
+  if (!tags?.length) return [];
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const tag of tags) {
+    const value = tag.trim();
+    if (!value) continue;
+    const key = value.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    normalized.push(value);
+  }
+  return normalized;
+}
+
 export async function createEntity(options: {
   connectorId: string;
   name: string;
   description?: string | null;
+  tags?: string[] | null;
 }) {
   const inserted = await db
     .insert(appointmentEntities)
@@ -146,6 +162,7 @@ export async function createEntity(options: {
       connectorId: options.connectorId,
       name: options.name.trim(),
       description: options.description?.trim() || null,
+      tags: normalizeTags(options.tags),
       isActive: true,
       updatedAt: new Date(),
     })
@@ -157,12 +174,14 @@ export async function updateEntity(options: {
   entityId: string;
   name: string;
   description?: string | null;
+  tags?: string[] | null;
 }) {
   const updated = await db
     .update(appointmentEntities)
     .set({
       name: options.name.trim(),
       description: options.description?.trim() || null,
+      tags: normalizeTags(options.tags),
       updatedAt: new Date(),
     })
     .where(eq(appointmentEntities.id, options.entityId))

@@ -100,6 +100,7 @@ async function listEntitiesTool(
       id: entity.id,
       name: entity.name,
       description: entity.description,
+      tags: entity.tags ?? [],
       is_active: entity.isActive,
     })),
   });

@@ -78,6 +78,7 @@ export async function POST(request: Request, context: RouteContext) {
       connectorId: ownership.connector.id,
       name: bodyParse.data.name,
       description: bodyParse.data.description,
+      tags: bodyParse.data.tags,
     });
     return NextResponse.json({ ok: true, entity });
   } catch (error) {

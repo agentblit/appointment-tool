@@ -293,10 +293,13 @@ function wrapHtml(title: string, body: string): string {
 }
 
 export const CHECK_SLOTS_HTML = wrapHtml(
-  "Available slots",
+  "Available times",
   `
   <div class="header">
-    <p class="title">Choose a time</p>
+    <div>
+      <p class="title" id="entity-title">Available times</p>
+      <p class="muted" id="entity-subtitle" style="margin:2px 0 0"></p>
+    </div>
     <span class="muted" id="subtitle">Loading…</span>
   </div>
   <div class="date-tabs" id="date-tabs"></div>
@@ -321,6 +324,7 @@ export const CHECK_SLOTS_HTML = wrapHtml(
       args: {},
       timezone: "",
       entityId: "",
+      entityName: "",
       booked: false
     };
 
@@ -385,7 +389,9 @@ export const CHECK_SLOTS_HTML = wrapHtml(
       document.getElementById("date-tabs").style.display = "none";
       document.getElementById("slots").style.display = "none";
       document.getElementById("book-form").style.display = "none";
-      document.querySelector(".title").textContent = "Appointment confirmed";
+      var entityLabel = state.entityName || "provider";
+      document.getElementById("entity-title").textContent = "Appointment confirmed";
+      document.getElementById("entity-subtitle").textContent = entityLabel;
       document.getElementById("subtitle").textContent = "Booked";
       var when = formatDate(dateKey(slot)) + " at " +
         timeLabel(slot.start_local || slot.start);
@@ -395,13 +401,26 @@ export const CHECK_SLOTS_HTML = wrapHtml(
         '<div class="confirmation">' +
         '<span class="confirmation-mark" aria-hidden="true">✓</span>' +
         "<div>" +
-        '<div class="confirmation-time">' + escapeHtml(when) + "</div>" +
+        '<div class="confirmation-time">Appointment with ' +
+        escapeHtml(entityLabel) + " booked for " + escapeHtml(when) + ".</div>" +
         '<div class="muted">Confirmed for ' + escapeHtml(name) + "</div>" +
         "</div>" +
         "</div>";
       requestAnimationFrame(function () {
         window.McpAppBridge.notifySize && window.McpAppBridge.notifySize();
       });
+    }
+
+    function updateEntityHeader() {
+      var title = document.getElementById("entity-title");
+      var sub = document.getElementById("entity-subtitle");
+      if (state.entityName) {
+        title.textContent = state.entityName;
+        sub.textContent = "Choose a time";
+      } else {
+        title.textContent = "Available times";
+        sub.textContent = "";
+      }
     }
 
     function render() {
@@ -412,6 +431,7 @@ export const CHECK_SLOTS_HTML = wrapHtml(
       var subtitle = document.getElementById("subtitle");
       root.innerHTML = "";
       tabs.innerHTML = "";
+      updateEntityHeader();
       if (!state.slots.length) {
         subtitle.textContent = "No times available";
         form.style.display = "none";
@@ -500,9 +520,12 @@ export const CHECK_SLOTS_HTML = wrapHtml(
         timezone: state.timezone || state.args.timezone
       }).then(function (result) {
         var booking = parseResult(result || {});
+        if (booking.entity_name) state.entityName = booking.entity_name;
+        var entityLabel = state.entityName || "provider";
         var when = formatDate(dateKey(slot)) + " at " +
           timeLabel(slot.start_local || slot.start);
-        var summary = "Appointment booked for " + when + ".";
+        var summary =
+          "Appointment with " + entityLabel + " booked for " + when + ".";
         state.booked = true;
         showConfirmation(slot, name);
         return window.McpAppBridge.updateModelContext({
@@ -512,6 +535,7 @@ export const CHECK_SLOTS_HTML = wrapHtml(
             action: "appointment_booked",
             appointment_id: booking.appointment_id || booking.id,
             entity_id: state.entityId || state.args.entity_id,
+            entity_name: entityLabel,
             slot_start: slot.start,
             slot_end: slot.end,
             timezone: state.timezone || state.args.timezone,
@@ -537,6 +561,7 @@ export const CHECK_SLOTS_HTML = wrapHtml(
       var slots = data.slots || [];
       state.slots = Array.isArray(slots) ? slots : [];
       state.entityId = data.entity_id || state.args.entity_id;
+      state.entityName = data.entity_name || state.entityName || "";
       state.timezone = data.user_timezone || state.args.timezone || state.timezone;
       render();
     };

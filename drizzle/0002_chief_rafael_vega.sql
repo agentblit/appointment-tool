@@ -1,0 +1,1 @@
+ALTER TABLE "appointment"."entities" ADD COLUMN "tags" text[] DEFAULT '{}' NOT NULL;
